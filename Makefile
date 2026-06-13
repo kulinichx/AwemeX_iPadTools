@@ -27,8 +27,8 @@ BUNDLE_NAME = AwemeXPrefs
 AwemeXPrefs_FILES = Preferences/AwemeXPrefs.m
 AwemeXPrefs_INSTALL_PATH = /Library/PreferenceBundles
 AwemeXPrefs_FRAMEWORKS = UIKit
-AwemeXPrefs_PRIVATE_FRAMEWORKS = Preferences
 AwemeXPrefs_CFLAGS = -fobjc-arc -w
+AwemeXPrefs_LDFLAGS = -undefined dynamic_lookup
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk

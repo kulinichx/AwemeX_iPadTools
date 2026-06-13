@@ -10,6 +10,6 @@ TWEAK_NAME = AwemeX_AlphaPro
 
 AwemeX_AlphaPro_FILES = AwemeX_AlphaPro.xm
 AwemeX_AlphaPro_FRAMEWORKS = UIKit
-AwemeX_AlphaPro_CFLAGS = -fobjc-arc
+AwemeX_AlphaPro_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 
 include $(THEOS_MAKE_PATH)/tweak.mk

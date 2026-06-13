@@ -199,6 +199,21 @@ static BOOL AXIsTopStack(UIView *v) {
     return AXIsTopAreaView(v);
 }
 
+static CGAffineTransform AXRightStackTargetTransform(UIView *v) {
+    CGFloat scale = AXFloat(kAXScale, 0.81);
+    if (scale <= 0 || fabs(scale - 1.0) <= 0.001) return CGAffineTransformIdentity;
+
+    NSArray *subviews = [v.subviews copy];
+    CGFloat ty = 0;
+    for (UIView *view in subviews) {
+        CGFloat viewHeight = view.frame.size.height;
+        ty += (viewHeight - viewHeight * scale) / 2;
+    }
+    CGFloat frameWidth = v.frame.size.width;
+    CGFloat rightTX = (frameWidth - frameWidth * scale) / 2;
+    return CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
+}
+
 static void AXApplyElementEffects(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v)) return;
     if (axApplyingElementEffects) return;
@@ -206,23 +221,12 @@ static void AXApplyElementEffects(UIView *v) {
     axApplyingElementEffects = YES;
 
     if (AXIsRightStack(v)) {
-        CGFloat scale = AXFloat(kAXScale, 0.81);
         CGFloat alpha = AXFloat(kAXRightAlpha, 0.80);
+        CGAffineTransform t = AXRightStackTargetTransform(v);
 
-        // DYYY iPad 同款：直接作用在 AWEElementStackView 本体，右对齐 + 垂直补偿。
-        v.transform = CGAffineTransformIdentity;
-        if (scale > 0 && fabs(scale - 1.0) > 0.001) {
-            NSArray *subviews = [v.subviews copy];
-            CGFloat ty = 0;
-            for (UIView *view in subviews) {
-                CGFloat viewHeight = view.frame.size.height;
-                ty += (viewHeight - viewHeight * scale) / 2;
-            }
-            CGFloat frameWidth = v.frame.size.width;
-            CGFloat rightTX = (frameWidth - frameWidth * scale) / 2;
-            CGAffineTransform t = CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
-            if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
-        }
+        // DYYY iPad 同款：直接作用在 AWEElementStackView 本体。
+        // 之前缩放会被系统后续 setTransform(identity) 覆盖；V19 会在 setTransform 里守护。
+        if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
         if (fabs(v.alpha - alpha) > 0.001) v.alpha = alpha;
         axApplyingElementEffects = NO;
         return;
@@ -379,7 +383,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V18";
+        title.text = @"AwemeX 设置 V19";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -425,7 +429,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V18：按 DYYY 保留右侧窄栏坐标兜底；不恢复会卡滑动的强制重刷。";
+        note.text = @"V19：加入 setTransform 守护，防止右侧缩放被系统布局覆盖。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
@@ -474,11 +478,29 @@ static void AXShow(void) {
 %hook AWEElementStackView
 - (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
+- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
+- (void)setTransform:(CGAffineTransform)transform {
+    if (!axApplyingElementEffects && AXIsRightStack((UIView *)self)) {
+        CGAffineTransform target = AXRightStackTargetTransform((UIView *)self);
+        %orig(target);
+        return;
+    }
+    %orig(transform);
+}
 %end
 
 %hook IESLiveStackView
 - (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
+- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
+- (void)setTransform:(CGAffineTransform)transform {
+    if (!axApplyingElementEffects && AXIsRightStack((UIView *)self)) {
+        CGAffineTransform target = AXRightStackTargetTransform((UIView *)self);
+        %orig(target);
+        return;
+    }
+    %orig(transform);
+}
 %end
 
 %hook AWESearchEntranceView

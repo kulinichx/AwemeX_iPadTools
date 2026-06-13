@@ -536,7 +536,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V28";
+        title.text = @"AwemeX 设置 V30";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -583,7 +583,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 532, width - 60, 26)];
-        note.text = @"V29：参考 DYYY 透明度值守；文案/相关搜索使用独立面板。";
+        note.text = @"V30：增强中间文案、搜索/合集图标透明度值守。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
@@ -779,20 +779,24 @@ static BOOL AXOF_IsRelatedSearchView(UIView *v) {
     if (AXOF_HasMarkedRelatedSearchAncestor(v)) return YES;
     NSString *cls = NSStringFromClass(v.class);
     NSString *txt = AXOF_ViewText(v);
-    if ([txt containsString:@"相关搜索"] || ([txt containsString:@"搜索"] && txt.length <= 28)) return YES;
+    if ([txt containsString:@"相关搜索"] || [txt containsString:@"合集"] ||
+        ([txt containsString:@"搜索"] && txt.length <= 36)) return YES;
     if ([cls containsString:@"RelatedSearch"] || [cls containsString:@"RelationSearch"] ||
         [cls containsString:@"SearchEntrance"] || [cls containsString:@"SearchBar"] ||
-        [cls containsString:@"SearchHint"] || [cls containsString:@"FeedSearch"]) return YES;
+        [cls containsString:@"SearchHint"] || [cls containsString:@"FeedSearch"] ||
+        [cls containsString:@"Mix"] || [cls containsString:@"Collection"]) return YES;
 
-    // 坐标兜底：底部偏上的横向搜索条，只处理叶子文本/图标/按钮，避免误伤 Feed 容器。
+    // 坐标兜底：底部偏上的“相关搜索 / 合集”横条。这里把开头的放大镜/合集图标也纳入。
     if (![v isKindOfClass:UILabel.class] && ![v isKindOfClass:UIButton.class] && ![v isKindOfClass:UIImageView.class]) return NO;
     CGRect f = AXOF_WindowFrame(v);
     CGSize s = UIScreen.mainScreen.bounds.size;
     if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
-    BOOL looksLikeBottomSearch = f.origin.y > s.height * 0.48 && f.origin.y < s.height * 0.72 &&
-                                 f.origin.x < s.width * 0.18 && f.size.width > s.width * 0.22 &&
-                                 f.size.height < 80.0;
-    return looksLikeBottomSearch && txt.length > 0 && [txt containsString:@"搜索"];
+    BOOL inStripY = f.origin.y > s.height * 0.46 && f.origin.y < s.height * 0.74;
+    BOOL stripText = inStripY && f.origin.x < s.width * 0.30 && f.size.width > s.width * 0.18 &&
+                     f.size.height < 86.0 &&
+                     (txt.length > 0 && ([txt containsString:@"搜索"] || [txt containsString:@"合集"]));
+    BOOL stripIcon = inStripY && f.origin.x < s.width * 0.14 && f.size.width <= 72.0 && f.size.height <= 72.0;
+    return stripText || stripIcon;
 }
 
 static BOOL AXOF_IsNicknameDescView(UIView *v) {
@@ -811,11 +815,13 @@ static BOOL AXOF_IsNicknameDescView(UIView *v) {
     CGSize s = UIScreen.mainScreen.bounds.size;
     if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
 
-    // iPad 横屏/竖屏都尽量只处理下方昵称文案叶子控件，不处理右侧按钮栏和底部 Tab。
-    BOOL leftOrCenterTextArea = f.origin.x < s.width * 0.72 &&
-                                f.origin.y > s.height * 0.28 && f.origin.y < s.height * 0.76 &&
-                                f.size.width < s.width * 0.82 && f.size.height < 140.0;
-    return leftOrCenterTextArea && txt.length > 0;
+    // iPad 横屏/竖屏都尽量只处理左侧/中部的昵称、文案、话题、声明、IP 等文字。
+    // V30 放宽上边界，覆盖图一这种跑到画面中间偏上的文案行。
+    BOOL leftOrCenterTextArea = f.origin.x < s.width * 0.76 &&
+                                f.origin.y > s.height * 0.12 && f.origin.y < s.height * 0.78 &&
+                                f.size.width < s.width * 0.88 && f.size.height < 120.0;
+    BOOL safeTextLeaf = [v isKindOfClass:UILabel.class] || [v isKindOfClass:UIButton.class];
+    return leftOrCenterTextArea && safeTextLeaf && txt.length > 0;
 }
 
 static void AXOF_ApplyAlphaKind(UIView *v, CGFloat alpha, NSInteger kind) {
@@ -971,7 +977,7 @@ static void AXOF_RefreshAll(void) {
         }
 
         UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(28, height - 78, width - 56, 58)];
-        tip.text = @"V29：参考 DYYY 的延迟值守方式；切换视频后会自动补套透明度。";
+        tip.text = @"V30：搜索/合集图标也参与透明度；切换视频后自动补套。";
         tip.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.62];
         tip.font = [UIFont systemFontOfSize:11];
         tip.numberOfLines = 2;
@@ -1000,9 +1006,27 @@ static void AXOF_AddSettingsEntryButton(void) {
     NSNumber *added = objc_getAssociatedObject(panel, &kAXOFSettingsAddedKey);
     if (added.boolValue) return;
 
+    // 避免“文案/相关搜索透明度”按钮和底部说明文字重叠：隐藏旧说明，把按钮固定放在“搞定收工”上方。
+    for (UIView *sub in panel.subviews) {
+        if ([sub isKindOfClass:UILabel.class]) {
+            NSString *t = ((UILabel *)sub).text ?: @"";
+            if ([t containsString:@"V29"] || [t containsString:@"V30"] || [t containsString:@"DYYY"] || [t containsString:@"文案/相关搜索"]) {
+                sub.hidden = YES;
+            }
+        }
+    }
+
     CGFloat width = panel.bounds.size.width;
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-    btn.frame = CGRectMake(30, MAX(52, panel.bounds.size.height - 98), width - 60, 34);
+    CGFloat y = MAX(52.0, panel.bounds.size.height - 96.0);
+    // 如果底部有“搞定收工”按钮，把入口放到它上面一点。
+    for (UIView *sub in panel.subviews) {
+        if ([sub isKindOfClass:UIButton.class]) {
+            NSString *t = [(UIButton *)sub titleForState:UIControlStateNormal] ?: @"";
+            if ([t containsString:@"搞定收工"]) y = MIN(y, sub.frame.origin.y - 42.0);
+        }
+    }
+    btn.frame = CGRectMake(30, y, width - 60, 34);
     btn.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.16];
     btn.layer.cornerRadius = 9;
     [btn setTitle:@"文案/相关搜索透明度" forState:UIControlStateNormal];

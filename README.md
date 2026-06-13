@@ -58,3 +58,9 @@ DYYYElementScale
 ## V10.2 BuildFix
 
 - 删除未使用的 `AXTopVC()`，修复 GitHub Actions 中 `-Werror,-Wunused-function` 编译失败。
+
+
+## V10.3 BuildFix
+
+- 新增 `AwemeX.plist` Filter，修复 Theos stage 报错：`missing a filter property list`。
+- Filter bundle：`com.ss.iphone.ugc.Aweme`。

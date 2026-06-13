@@ -1,53 +1,58 @@
+
 #import <UIKit/UIKit.h>
 
-@interface AwemeXButton : UIButton
-@end
+static UIButton *axButton = nil;
 
-@implementation AwemeXButton
-
-- (instancetype)init {
-    self = [super initWithFrame:CGRectMake(100, 200, 50, 50)];
-    if (self) {
-        self.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.5];
-        self.layer.cornerRadius = 25;
-        [self setTitle:@"AX" forState:UIControlStateNormal];
-        [self addTarget:self action:@selector(openPanel) forControlEvents:UIControlEventTouchUpInside];
-    }
-    return self;
-}
-
-- (void)openPanel {
+static UIViewController *AXTopVC(void) {
     UIViewController *vc = UIApplication.sharedApplication.keyWindow.rootViewController;
-    while (vc.presentedViewController) {
-        vc = vc.presentedViewController;
-    }
-
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"AwemeX"
-                                                                   message:@"注入成功 ✅"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-
-    [vc presentViewController:alert animated:YES completion:nil];
+    while (vc.presentedViewController) vc = vc.presentedViewController;
+    return vc;
 }
 
-@end
+static void AXAddButton(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *win = UIApplication.sharedApplication.keyWindow;
+        if (!win || axButton) return;
 
+        axButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        axButton.frame = CGRectMake(200, 200, 80, 80);
+        axButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
+        axButton.layer.cornerRadius = 40;
+        [axButton setTitle:@"AX" forState:UIControlStateNormal];
 
-%hook UIWindow
+        [axButton addTarget:[UIApplication sharedApplication]
+                     action:@selector(ax_openPanel)
+           forControlEvents:UIControlEventTouchUpInside];
 
-- (void)didMoveToWindow {
-    %orig;
-
-    static BOOL added = NO;
-    if (added) return;
-
-    added = YES;
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        AwemeXButton *btn = [[AwemeXButton alloc] init];
-        [self addSubview:btn];
+        [win addSubview:axButton];
     });
 }
 
+%hook UIApplication
+
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    %orig;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        AXAddButton();
+    });
+}
+
+%new
+- (void)ax_openPanel {
+    UIViewController *vc = AXTopVC();
+    if (!vc) return;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"AwemeX"
+                                                                   message:@"AX 按钮正常"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [vc presentViewController:alert animated:YES completion:nil];
+}
+
 %end
+
+%ctor {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        AXAddButton();
+    });
+}

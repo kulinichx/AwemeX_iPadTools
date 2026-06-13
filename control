@@ -1,9 +1,10 @@
-Package: com.awemex.ipadtools
-Name: AwemeX iPad Tools
-Depends: mobilesubstrate, preferenceloader
+
+Package: com.awemex.minimal
+Name: AwemeX Minimal AX
+Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: iPad foreground layer tools for Aweme. Feed-only right action scaling, expandable settings panel, Preferences bundle.
-Version: 1.5.0
-Maintainer: kulinichx
-Author: kulinichx
+Description: Minimal AX button test
+Version: 1.0
+Maintainer: test
+Author: test
 Section: Tweaks

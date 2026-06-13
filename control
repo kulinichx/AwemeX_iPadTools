@@ -1,9 +1,6 @@
-Package: com.awemex.alphapro.v10.6
-Name: AwemeX AlphaPro V10.6 FunctionFix
-Depends: mobilesubstrate
+Package: com.awemex.alphapro.v10.7
+Name: AwemeX AlphaPro V10.7 Stable
+Version: 10.7
 Architecture: iphoneos-arm64
-Description: Safe non-conflicting Aweme tweak with fixed menu, scale, search hide, and AX hide switch
-Version: 10.6
-Maintainer: test
-Author: test
-Section: Tweaks
+Depends: mobilesubstrate
+Description: stable industrial fix version

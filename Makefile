@@ -7,6 +7,6 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = AwemeXAlphaPro
 AwemeXAlphaPro_FILES = AwemeX_AlphaPro.xm
 AwemeXAlphaPro_CFLAGS = -fobjc-arc
-AwemeXAlphaPro_FRAMEWORKS = UIKit CoreGraphics QuartzCore
+AwemeXAlphaPro_FRAMEWORKS = UIKit CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk

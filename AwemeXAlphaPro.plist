@@ -1,7 +1,5 @@
 {
-    Filter = {
-        Bundles = (
-            "com.ss.iphone.ugc.Aweme"
-        );
-    };
+  Filter = {
+    Bundles = ("com.ss.iphone.ugc.Aweme");
+  };
 }

@@ -1,9 +1,9 @@
-Package: com.awemex.v10.dyyyscale
-Name: AwemeX V10 DYYYScale
+Package: com.awemex.v10.2.dyyyscale
+Name: AwemeX V10.2 DYYYScale
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
 Description: DYYY-style right stack scale; covers right opacity for avatar/like/comment/favorite/share/music
-Version: 10.0
+Version: 10.2
 Maintainer: test
 Author: test
 Section: Tweaks

@@ -57,12 +57,6 @@ static UIWindow *AXKeyWindow(void) {
     return legacyWindows.firstObject;
 }
 
-static UIViewController *AXTopVC(void) {
-    UIViewController *vc = AXKeyWindow().rootViewController;
-    while (vc.presentedViewController) vc = vc.presentedViewController;
-    return vc;
-}
-
 static UIViewController *AXFirstAvailableViewControllerFromView(UIView *view) {
     UIResponder *responder = view;
     while (responder) {

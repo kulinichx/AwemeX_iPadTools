@@ -1,4 +1,4 @@
-# AwemeX V10 DYYYScale
+# AwemeX V10.2 DYYYScale
 
 ## 这版解决什么
 
@@ -53,3 +53,8 @@ DYYYElementScale
 3. 右侧缩放 1.2：确认整列放大但不漂移；
 4. 右侧透明度 0.3：确认分享和音乐也一起变化；
 5. 切换视频 10 次：确认不会残留 transform。
+
+
+## V10.2 BuildFix
+
+- 删除未使用的 `AXTopVC()`，修复 GitHub Actions 中 `-Werror,-Wunused-function` 编译失败。

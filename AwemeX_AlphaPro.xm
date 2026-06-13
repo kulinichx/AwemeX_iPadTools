@@ -6,7 +6,7 @@ static UIButton *axButton = nil;
 static NSTimer *axTimer = nil;
 static __weak UIView *axPanelRoot = nil;
 static __weak UIView *axRightScaledContainer = nil;
-static const char kAXRightContainerAnchorAdjustedKey;
+static char kAXRightContainerAnchorAdjustedKey = 0;
 
 static UIWindow *AXKeyWindow(void) {
     if (@available(iOS 13.0, *)) {

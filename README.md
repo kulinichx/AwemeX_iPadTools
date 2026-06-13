@@ -1,66 +1,39 @@
-# AwemeX V10.2 DYYYScale
+# AwemeX AlphaPro V10.4 SafeFinal
 
-## 这版解决什么
+V10.4 重点修复命名冲突：不再生成 AwemeX.dylib / AwemeX.plist，避免覆盖你原来的抖音图层文件。
 
-V9 的右侧缩放使用 UIWindow 遍历猜容器，容易命中顶部栏或更大的播放页父容器，导致：
+## 新生成文件名
 
-- 顶部“推荐/关注”附近图标错位；
-- 右侧栏整列漂移；
-- 缩放 slider 偶尔不生效。
-
-V10 改为参考 DYYY 的成熟方式：hook `AWEElementStackView`，只在 `AWEPlayInteractionViewController` 内识别右侧 Stack 后执行 transform。
-
-## 右侧功能覆盖
-
-右侧透明度和识别已重点考虑：
-
-- 头像 / 用户头像；
-- 点赞 / digg / like；
-- 评论；
-- 收藏 / favorite / collect；
-- 分享 / forward / share；
-- 音乐 / music / cover / disk / disc / sound。
-
-右侧缩放使用 AwemeX 自己的设置 key：
-
-```objc
-ax_right_buttons_scale
+```text
+AwemeXAlphaPro.dylib
+AwemeXAlphaPro.plist
 ```
 
-不是 DYYY 的：
+## 关键修改
 
-```objc
-DYYYElementScale
+```makefile
+TWEAK_NAME = AwemeXAlphaPro
+AwemeXAlphaPro_FILES = AwemeX_AlphaPro.xm
 ```
 
-## 核心判断
+Filter 文件名也同步改为：
 
-右侧缩放命中条件：
+```text
+AwemeXAlphaPro.plist
+```
 
-- 当前 view 所属 VC 是 `AWEPlayInteractionViewController`；
-- `accessibilityLabel == @"right"`；或
-- 包含 `AWEPlayInteractionUserAvatarView`；或
-- 子元素 `elementClassName` 命中头像/点赞/评论/收藏/分享/音乐相关元素。
+## 功能
 
-## 测试建议
+- 顶部推荐/关注透明度
+- 右侧按钮透明度
+- 右侧按钮缩放
+- 隐藏右上角搜索
+- 右侧覆盖：头像、点赞、评论、收藏、分享、音乐
+- 缩放使用 DYYY 风格 AWEElementStackView 识别方案
 
-安装后杀掉抖音重新打开。
+## Build fixes
 
-建议依次测试：
-
-1. 右侧缩放 1.0：确认布局恢复原位；
-2. 右侧缩放 0.8：确认头像/点赞/评论/收藏/分享/音乐整列一起缩小；
-3. 右侧缩放 1.2：确认整列放大但不漂移；
-4. 右侧透明度 0.3：确认分享和音乐也一起变化；
-5. 切换视频 10 次：确认不会残留 transform。
-
-
-## V10.2 BuildFix
-
-- 删除未使用的 `AXTopVC()`，修复 GitHub Actions 中 `-Werror,-Wunused-function` 编译失败。
-
-
-## V10.3 BuildFix
-
-- 新增 `AwemeX.plist` Filter，修复 Theos stage 报错：`missing a filter property list`。
-- Filter bundle：`com.ss.iphone.ugc.Aweme`。
+- 添加 Filter plist
+- 删除未使用函数
+- 避免 deprecated keyWindow 直接调用
+- TARGET 使用 iOS 14.0，避免 arm64e/iOS 13 warning

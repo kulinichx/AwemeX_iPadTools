@@ -1,9 +1,9 @@
-Package: com.awemex.v10.2.dyyyscale
-Name: AwemeX V10.2 DYYYScale
+Package: com.awemex.alphapro.v10.4
+Name: AwemeX AlphaPro V10.4 SafeFinal
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: DYYY-style right stack scale; covers right opacity for avatar/like/comment/favorite/share/music
-Version: 10.2
+Description: Safe non-conflicting Aweme tweak: DYYY-style right stack scale and right opacity controls
+Version: 10.4
 Maintainer: test
 Author: test
 Section: Tweaks

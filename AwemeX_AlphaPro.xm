@@ -2,6 +2,9 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+@interface AWEElementStackView : UIView
+@end
+
 extern id objc_msgSend(id self, SEL op, ...);
 
 static UIButton *axButton;
@@ -53,7 +56,7 @@ static void AXApplyScale(UIView *v){
 %hook AWEElementStackView
 - (void)layoutSubviews{
     %orig;
-    AXApplyScale(self);
+    AXApplyScale((UIView *)self);
 }
 %end
 

@@ -68,86 +68,90 @@ static BOOL AXLooksLikeTopTab(UIView *v) {
            [s containsString:@"关注"];
 }
 
-static BOOL AXLooksLikeRightAction(UIView *v) {
+static BOOL AXLooksLikeRightButtonItem(UIView *v) {
     if (!v.window || AXIsInOurPanel(v)) return NO;
-    CGRect r = [v.superview convertRect:v.frame toView:nil];
-    CGSize screen = UIScreen.mainScreen.bounds.size;
-    BOOL pos = r.origin.x > screen.width * 0.68;
-    BOOL size = r.size.width >= 28 && r.size.width <= 170 && r.size.height >= 40 && r.size.height <= screen.height * 0.85;
-    NSString *s = AXInfo(v);
-    BOOL name = [s containsString:@"right"] ||
-                [s containsString:@"action"] ||
-                [s containsString:@"digg"] ||
-                [s containsString:@"comment"] ||
-                [s containsString:@"share"] ||
-                [s containsString:@"like"] ||
-                [s containsString:@"avatar"];
-    return pos && size && name;
-}
-
-static BOOL AXLooksLikeRightPanelContainer(UIView *v) {
-    if (!v.window || AXIsInOurPanel(v)) return NO;
+    if (v.hidden || v.alpha <= 0.01) return NO;
 
     CGRect r = [v.superview convertRect:v.frame toView:nil];
     CGSize screen = UIScreen.mainScreen.bounds.size;
 
-    BOOL rightSide = r.origin.x > screen.width * 0.66;
-    BOOL narrow = r.size.width >= 42 && r.size.width <= 180;
-    BOOL tall = r.size.height >= 180 && r.size.height <= screen.height * 0.86;
-    BOOL notFullPage = r.size.width < screen.width * 0.32 && r.size.height < screen.height * 0.90;
-    BOOL hasSeveralSubviews = v.subviews.count >= 3;
+    BOOL rightSide = r.origin.x > screen.width * 0.62;
+    BOOL itemSize = r.size.width >= 24 && r.size.width <= 120 && r.size.height >= 24 && r.size.height <= 140;
+    BOOL notTooLow = r.origin.y > screen.height * 0.15 && r.origin.y < screen.height * 0.88;
 
-    if (!(rightSide && narrow && tall && notFullPage && hasSeveralSubviews)) return NO;
-
-    NSInteger matchedChildren = 0;
-    for (UIView *sub in v.subviews) {
-        CGRect sr = [sub.superview convertRect:sub.frame toView:nil];
-        if (sr.origin.x > screen.width * 0.62 &&
-            sr.size.width >= 20 && sr.size.width <= 150 &&
-            sr.size.height >= 20 && sr.size.height <= 140) {
-            matchedChildren++;
-        }
-    }
+    if (!(rightSide && itemSize && notTooLow)) return NO;
 
     NSString *s = AXInfo(v);
-    BOOL nameHint = [s containsString:@"right"] ||
-                    [s containsString:@"action"] ||
-                    [s containsString:@"interaction"] ||
-                    [s containsString:@"feed"] ||
-                    [s containsString:@"side"];
+    BOOL nameHit = [s containsString:@"digg"] ||
+                   [s containsString:@"like"] ||
+                   [s containsString:@"comment"] ||
+                   [s containsString:@"collect"] ||
+                   [s containsString:@"favorite"] ||
+                   [s containsString:@"share"] ||
+                   [s containsString:@"avatar"] ||
+                   [s containsString:@"follow"] ||
+                   [s containsString:@"right"] ||
+                   [s containsString:@"action"];
 
-    return matchedChildren >= 3 || nameHint;
+    BOOL imageLike = [v isKindOfClass:UIImageView.class] ||
+                     [v isKindOfClass:UIButton.class] ||
+                     [v isKindOfClass:UIControl.class];
+
+    BOOL compactLeaf = v.subviews.count <= 4;
+
+    return nameHit || (imageLike && compactLeaf);
 }
 
-static UIView *AXFindBestRightPanel(UIWindow *win) {
-    if (!win) return nil;
+static BOOL AXLooksLikeRightButtonLabel(UIView *v) {
+    if (!v.window || AXIsInOurPanel(v)) return NO;
+    if (![v isKindOfClass:UILabel.class]) return NO;
 
-    UIView *best = nil;
-    CGFloat bestScore = 0;
+    CGRect r = [v.superview convertRect:v.frame toView:nil];
+    CGSize screen = UIScreen.mainScreen.bounds.size;
 
-    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:win];
-    NSInteger count = 0;
+    BOOL rightSide = r.origin.x > screen.width * 0.62;
+    BOOL labelSize = r.size.width >= 10 && r.size.width <= 120 && r.size.height >= 10 && r.size.height <= 50;
+    BOOL notTooLow = r.origin.y > screen.height * 0.15 && r.origin.y < screen.height * 0.90;
 
-    while (stack.count && count < 800) {
-        UIView *v = stack.lastObject;
-        [stack removeLastObject];
-        count++;
+    return rightSide && labelSize && notTooLow;
+}
 
-        if (AXLooksLikeRightPanelContainer(v)) {
-            CGRect r = [v.superview convertRect:v.frame toView:nil];
-            CGFloat score = v.subviews.count * 10 + r.size.height + r.origin.x;
-            if (score > bestScore) {
-                bestScore = score;
-                best = v;
-            }
-        }
+static BOOL AXLooksLikeTopRightSearch(UIView *v) {
+    if (!v.window || AXIsInOurPanel(v)) return NO;
+    if (v == axButton) return NO;
 
-        for (UIView *sub in v.subviews) {
-            [stack addObject:sub];
-        }
-    }
+    CGRect r = [v.superview convertRect:v.frame toView:nil];
+    CGSize screen = UIScreen.mainScreen.bounds.size;
 
-    return best;
+    BOOL topRight = r.origin.x > screen.width * 0.70 &&
+                    r.origin.y >= 0 &&
+                    r.origin.y < screen.height * 0.18;
+
+    BOOL smallButton = r.size.width >= 20 && r.size.width <= 120 &&
+                       r.size.height >= 20 && r.size.height <= 80;
+
+    if (!(topRight && smallButton)) return NO;
+
+    NSString *s = AXInfo(v);
+
+    BOOL textHit = [s containsString:@"search"] ||
+                   [s containsString:@"magnifier"] ||
+                   [s containsString:@"finder"] ||
+                   [s containsString:@"搜索"] ||
+                   [s containsString:@"放大镜"];
+
+    BOOL classHit = [v isKindOfClass:UIButton.class] ||
+                    [v isKindOfClass:UIControl.class] ||
+                    [v isKindOfClass:UIImageView.class];
+
+    // 稳定识别：优先靠搜索相关名称；如果类名/label没有暴露，则仅允许非常靠右上角的小图标命中。
+    BOOL veryCornerIcon = r.origin.x > screen.width * 0.82 &&
+                          r.origin.y < screen.height * 0.13 &&
+                          r.size.width <= 70 &&
+                          r.size.height <= 70 &&
+                          classHit;
+
+    return textHit || veryCornerIcon;
 }
 
 static void AXApplyVisibleSettings(void) {
@@ -156,31 +160,39 @@ static void AXApplyVisibleSettings(void) {
 
     CGFloat topOpacity = AXFloat(@"ax_top_opacity", 1.0);
     CGFloat rightOpacity = AXFloat(@"ax_right_opacity", 1.0);
-    CGFloat rightScale = AXFloat(@"ax_right_scale", 1.0);
+    CGFloat rightScale = AXFloat(@"ax_right_buttons_scale", 1.0);
+    CGFloat axOpacity = AXFloat(@"ax_button_opacity", 0.55);
+    BOOL hideSearch = AXBool(@"ax_hide_top_search", NO);
+
     if (rightScale < 0.50) rightScale = 0.50;
     if (rightScale > 1.50) rightScale = 1.50;
+    if (axOpacity < 0.05) axOpacity = 0.05;
+    if (axOpacity > 1.00) axOpacity = 1.00;
 
-    UIView *rightPanel = AXFindBestRightPanel(win);
-    if (rightPanel) {
-        rightPanel.transform = CGAffineTransformMakeScale(rightScale, rightScale);
-        rightPanel.alpha = rightOpacity;
-    }
+    if (axButton) axButton.alpha = axOpacity;
 
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:win];
     NSInteger count = 0;
 
-    while (stack.count && count < 700) {
+    while (stack.count && count < 1000) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
         count++;
 
         if (v == axButton || AXIsInOurPanel(v)) continue;
-        if (rightPanel && (v == rightPanel || [v isDescendantOfView:rightPanel])) continue;
 
-        if (AXLooksLikeTopTab(v)) {
+        if (AXLooksLikeTopRightSearch(v)) {
+            v.hidden = hideSearch;
+            v.alpha = hideSearch ? 0.0 : 1.0;
+            v.userInteractionEnabled = !hideSearch;
+        } else if (AXLooksLikeTopTab(v)) {
             v.alpha = topOpacity;
-        } else if (!rightPanel && AXLooksLikeRightAction(v)) {
+        } else if (AXLooksLikeRightButtonItem(v)) {
             v.alpha = rightOpacity;
+            v.transform = CGAffineTransformMakeScale(rightScale, rightScale);
+        } else if (AXLooksLikeRightButtonLabel(v)) {
+            v.alpha = rightOpacity;
+            v.transform = CGAffineTransformMakeScale(rightScale, rightScale);
         }
 
         for (UIView *sub in v.subviews) {
@@ -196,10 +208,13 @@ static void AXApplyVisibleSettings(void) {
     UISlider *_topSlider;
     UISlider *_rightSlider;
     UISlider *_scaleSlider;
+    UISlider *_axAlphaSlider;
     UISwitch *_floatSwitch;
+    UISwitch *_hideSearchSwitch;
     UILabel *_topValue;
     UILabel *_rightValue;
     UILabel *_scaleValue;
+    UILabel *_axAlphaValue;
 }
 
 - (void)viewDidLoad {
@@ -208,21 +223,21 @@ static void AXApplyVisibleSettings(void) {
     self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.25];
 
     UIVisualEffectView *card = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialDark]];
-    card.frame = CGRectMake(0, 0, 420, 470);
+    card.frame = CGRectMake(0, 0, 430, 590);
     card.center = self.view.center;
     card.layer.cornerRadius = 22;
     card.layer.masksToBounds = YES;
     [self.view addSubview:card];
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 18, 420, 36)];
-    title.text = @"AwemeX 设置 V4";
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 18, 430, 36)];
+    title.text = @"AwemeX 设置 V6";
     title.textColor = UIColor.whiteColor;
     title.textAlignment = NSTextAlignmentCenter;
     title.font = [UIFont boldSystemFontOfSize:18];
     [card.contentView addSubview:title];
 
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(366, 18, 36, 36);
+    close.frame = CGRectMake(376, 18, 36, 36);
     close.layer.cornerRadius = 18;
     close.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.25];
     [close setTitle:@"×" forState:UIControlStateNormal];
@@ -231,38 +246,53 @@ static void AXApplyVisibleSettings(void) {
     [close addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
     [card.contentView addSubview:close];
 
-    [self addLabel:@"顶部不透明度" y:76 card:card];
-    _topValue = [self addValueLabelY:76 card:card];
-    _topSlider = [self addSliderY:106 key:@"ax_top_opacity" def:1.0 min:0.0 max:1.0 card:card];
+    [self addLabel:@"顶部不透明度" y:72 card:card];
+    _topValue = [self addValueLabelY:72 card:card];
+    _topSlider = [self addSliderY:102 key:@"ax_top_opacity" def:1.0 min:0.0 max:1.0 card:card];
 
-    [self addLabel:@"右侧面板不透明度" y:152 card:card];
-    _rightValue = [self addValueLabelY:152 card:card];
-    _rightSlider = [self addSliderY:182 key:@"ax_right_opacity" def:1.0 min:0.0 max:1.0 card:card];
+    [self addLabel:@"右侧按钮不透明度" y:148 card:card];
+    _rightValue = [self addValueLabelY:148 card:card];
+    _rightSlider = [self addSliderY:178 key:@"ax_right_opacity" def:1.0 min:0.0 max:1.0 card:card];
 
-    [self addLabel:@"右侧播放面板缩放" y:228 card:card];
-    _scaleValue = [self addValueLabelY:228 card:card];
-    _scaleSlider = [self addSliderY:258 key:@"ax_right_scale" def:1.0 min:0.5 max:1.5 card:card];
+    [self addLabel:@"右侧按钮缩放比例度" y:224 card:card];
+    _scaleValue = [self addValueLabelY:224 card:card];
+    _scaleSlider = [self addSliderY:254 key:@"ax_right_buttons_scale" def:1.0 min:0.5 max:1.5 card:card];
 
-    UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(24, 300, 372, 40)];
-    tip.text = @"缩放只尝试命中播放页右侧竖排面板；如果你的版本没变化，下一版再按截图精确匹配。";
-    tip.textColor = [UIColor colorWithWhite:1 alpha:0.72];
-    tip.font = [UIFont systemFontOfSize:12];
-    tip.numberOfLines = 2;
-    [card.contentView addSubview:tip];
+    [self addLabel:@"AX 图标不透明度" y:300 card:card];
+    _axAlphaValue = [self addValueLabelY:300 card:card];
+    _axAlphaSlider = [self addSliderY:330 key:@"ax_button_opacity" def:0.55 min:0.05 max:1.0 card:card];
 
-    UILabel *floatLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 350, 220, 36)];
+    UILabel *searchLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 378, 250, 36)];
+    searchLabel.text = @"隐藏右上搜索";
+    searchLabel.textColor = UIColor.whiteColor;
+    searchLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [card.contentView addSubview:searchLabel];
+
+    _hideSearchSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(345, 379, 60, 36)];
+    _hideSearchSwitch.on = AXBool(@"ax_hide_top_search", NO);
+    [_hideSearchSwitch addTarget:self action:@selector(hideSearchChanged:) forControlEvents:UIControlEventValueChanged];
+    [card.contentView addSubview:_hideSearchSwitch];
+
+    UILabel *floatLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 426, 220, 36)];
     floatLabel.text = @"显示 AX 悬浮按钮";
     floatLabel.textColor = UIColor.whiteColor;
     floatLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     [card.contentView addSubview:floatLabel];
 
-    _floatSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(335, 351, 60, 36)];
+    _floatSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(345, 427, 60, 36)];
     _floatSwitch.on = AXBool(@"ax_float_enabled", YES);
     [_floatSwitch addTarget:self action:@selector(floatChanged:) forControlEvents:UIControlEventValueChanged];
     [card.contentView addSubview:_floatSwitch];
 
+    UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(24, 474, 382, 36)];
+    tip.text = @"搜索隐藏采用右上角位置 + 搜索关键词 + 小图标兜底识别。";
+    tip.textColor = [UIColor colorWithWhite:1 alpha:0.72];
+    tip.font = [UIFont systemFontOfSize:12];
+    tip.numberOfLines = 2;
+    [card.contentView addSubview:tip];
+
     UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-    reset.frame = CGRectMake(40, 405, 340, 42);
+    reset.frame = CGRectMake(40, 525, 350, 42);
     reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.18];
     reset.layer.cornerRadius = 12;
     [reset setTitle:@"恢复默认" forState:UIControlStateNormal];
@@ -274,7 +304,7 @@ static void AXApplyVisibleSettings(void) {
 }
 
 - (void)addLabel:(NSString *)text y:(CGFloat)y card:(UIVisualEffectView *)card {
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(24, y, 240, 24)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(24, y, 250, 24)];
     label.text = text;
     label.textColor = UIColor.whiteColor;
     label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
@@ -282,7 +312,7 @@ static void AXApplyVisibleSettings(void) {
 }
 
 - (UILabel *)addValueLabelY:(CGFloat)y card:(UIVisualEffectView *)card {
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(300, y, 96, 24)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(305, y, 100, 24)];
     label.textColor = [UIColor colorWithWhite:1 alpha:0.85];
     label.textAlignment = NSTextAlignmentRight;
     label.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
@@ -291,7 +321,7 @@ static void AXApplyVisibleSettings(void) {
 }
 
 - (UISlider *)addSliderY:(CGFloat)y key:(NSString *)key def:(CGFloat)def min:(CGFloat)min max:(CGFloat)max card:(UIVisualEffectView *)card {
-    UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(24, y, 372, 32)];
+    UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(24, y, 382, 32)];
     slider.value = AXFloat(key, def);
     slider.minimumValue = min;
     slider.maximumValue = max;
@@ -305,12 +335,19 @@ static void AXApplyVisibleSettings(void) {
     _topValue.text = [NSString stringWithFormat:@"%.0f%%", _topSlider.value * 100.0];
     _rightValue.text = [NSString stringWithFormat:@"%.0f%%", _rightSlider.value * 100.0];
     _scaleValue.text = [NSString stringWithFormat:@"%.2fx", _scaleSlider.value];
+    _axAlphaValue.text = [NSString stringWithFormat:@"%.0f%%", _axAlphaSlider.value * 100.0];
 }
 
 - (void)sliderChanged:(UISlider *)sender {
     [[NSUserDefaults standardUserDefaults] setFloat:sender.value forKey:sender.accessibilityIdentifier];
     [[NSUserDefaults standardUserDefaults] synchronize];
     [self updateValueLabels];
+    AXApplyVisibleSettings();
+}
+
+- (void)hideSearchChanged:(UISwitch *)sender {
+    [[NSUserDefaults standardUserDefaults] setBool:sender.on forKey:@"ax_hide_top_search"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
     AXApplyVisibleSettings();
 }
 
@@ -323,12 +360,16 @@ static void AXApplyVisibleSettings(void) {
 - (void)resetTapped {
     [[NSUserDefaults standardUserDefaults] setFloat:1.0 forKey:@"ax_top_opacity"];
     [[NSUserDefaults standardUserDefaults] setFloat:1.0 forKey:@"ax_right_opacity"];
-    [[NSUserDefaults standardUserDefaults] setFloat:1.0 forKey:@"ax_right_scale"];
+    [[NSUserDefaults standardUserDefaults] setFloat:1.0 forKey:@"ax_right_buttons_scale"];
+    [[NSUserDefaults standardUserDefaults] setFloat:0.55 forKey:@"ax_button_opacity"];
+    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"ax_hide_top_search"];
     [[NSUserDefaults standardUserDefaults] synchronize];
 
     _topSlider.value = 1.0;
     _rightSlider.value = 1.0;
     _scaleSlider.value = 1.0;
+    _axAlphaSlider.value = 0.55;
+    _hideSearchSwitch.on = NO;
     [self updateValueLabels];
     AXApplyVisibleSettings();
 }
@@ -354,13 +395,15 @@ static void AXAddButton(void) {
         UIWindow *win = AXKeyWindow();
         if (!win || axButton) return;
 
+        CGFloat size = 54.0;
         axButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        axButton.frame = CGRectMake(200, 200, 80, 80);
+        axButton.frame = CGRectMake(210, 200, size, size);
         axButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
-        axButton.layer.cornerRadius = 40;
+        axButton.layer.cornerRadius = size / 2.0;
         axButton.layer.masksToBounds = YES;
+        axButton.alpha = AXFloat(@"ax_button_opacity", 0.55);
         [axButton setTitle:@"AX" forState:UIControlStateNormal];
-        axButton.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+        axButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
 
         [axButton addTarget:[UIApplication sharedApplication]
                      action:@selector(ax_openPanel)

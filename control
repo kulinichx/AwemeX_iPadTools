@@ -1,9 +1,9 @@
-Package: com.awemex.v4.scale
-Name: AwemeX V4 Right Panel Scale
+Package: com.awemex.v6.hidesearch
+Name: AwemeX V6 Hide Search
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: Stable AX settings panel with opacity and right playback panel scale
-Version: 4.0
+Description: AX settings panel with stable top-right search hiding
+Version: 6.0
 Maintainer: test
 Author: test
 Section: Tweaks

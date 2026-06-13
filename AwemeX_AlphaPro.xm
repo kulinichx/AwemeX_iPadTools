@@ -659,10 +659,58 @@ static void AXShow(void) {
 %hook UIApplication
 - (void)applicationDidBecomeActive:(UIApplication *)app {
     %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); AXInstallTwoFingerLongPressGesture(); });
 }
 %end
 
+
+
+@interface AXGestureHandler : NSObject
++ (instancetype)shared;
+- (void)ax_handleTwoFingerLongPress:(UILongPressGestureRecognizer *)gesture;
+@end
+
+@implementation AXGestureHandler
++ (instancetype)shared {
+    static AXGestureHandler *g;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ g = [AXGestureHandler new]; });
+    return g;
+}
+- (void)ax_handleTwoFingerLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (axPanel) {
+                axPanel.hidden = !axPanel.hidden;
+            }
+        });
+    }
+}
+@end
+
+static BOOL AXGestureInstalled = NO;
+
+static void AXInstallTwoFingerLongPressGesture(void) {
+    if (AXGestureInstalled) return;
+
+    UIWindow *keyWindow = nil;
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        if (w.isKeyWindow) { keyWindow = w; break; }
+    }
+    if (!keyWindow) return;
+
+    UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:[AXGestureHandler shared]
+                                                                                   action:@selector(ax_handleTwoFingerLongPress:)];
+    g.minimumPressDuration = 0.8;
+    g.numberOfTouchesRequired = 2;
+    g.cancelsTouchesInView = NO;
+    g.delaysTouchesBegan = NO;
+    g.delaysTouchesEnded = NO;
+
+    [keyWindow addGestureRecognizer:g];
+    AXGestureInstalled = YES;
+}
+
 %ctor {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); AXInstallTwoFingerLongPressGesture(); });
 }

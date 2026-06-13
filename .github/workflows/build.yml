@@ -2,7 +2,7 @@ name: Build Deb
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -11,19 +11,24 @@ jobs:
 
     strategy:
       matrix:
-        scheme:
-          - rootful
-          - rootless
+        scheme: [rootful, rootless]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 🔥 安装依赖（关键！！）
+      - name: Install Dependencies
+        run: |
+          brew install ldid dpkg make perl
+
+      # 🔥 安装 Theos
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
+      # 🔥 编译
       - name: Build rootful
         if: matrix.scheme == 'rootful'
         run: |
@@ -34,15 +39,17 @@ jobs:
         run: |
           make clean package SCHEME=rootless
 
-      - name: Rename packages
+      # 🔥 收集 deb
+      - name: Collect deb
         run: |
           mkdir -p output
           for f in packages/*.deb; do
-            cp "$f" "output/${matrix.scheme}-$(basename "$f")"
+            cp "$f" "output/${{ matrix.scheme }}-$(basename "$f")"
           done
 
-      - name: Upload deb
+      # 🔥 上传
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: AwemeX-iPadTools-${{ matrix.scheme }}
+          name: AwemeX-${{ matrix.scheme }}
           path: output/*.deb

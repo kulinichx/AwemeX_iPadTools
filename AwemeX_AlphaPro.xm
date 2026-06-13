@@ -90,20 +90,6 @@ static BOOL AXIsTopAreaView(UIView *v) {
     return YES;
 }
 
-static BOOL AXIsRightArea(UIView *v) {
-    if (!v || AXIsAwemeXPanelView(v)) return NO;
-    UIWindow *w = AXKeyWindow();
-    if (!w || !v.superview) return NO;
-    CGRect f = [v.superview convertRect:v.frame toView:w];
-    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
-    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
-    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
-    if (f.origin.x < screenW * 0.55) return NO;
-    if (f.origin.y < screenH * 0.25) return NO;
-    if (f.size.width > screenW * 0.45 || f.size.height > screenH * 0.85) return NO;
-    return YES;
-}
-
 static UIViewController *AXFirstViewControllerFromView(UIView *view) {
     UIResponder *responder = view;
     while (responder) {
@@ -145,9 +131,12 @@ static BOOL AXIsRightStack(UIView *v) {
 
     UIViewController *vc = AXFirstViewControllerFromView(v);
     NSString *vcName = vc ? NSStringFromClass(vc.class) : @"";
+
+    // V16：不再用坐标范围兜底判断右侧栏。
+    // 之前会误伤 Feed 的滑动/手势容器，导致视频无法上下滑动。
     if (![vcName containsString:@"AWEPlayInteractionViewController"] &&
         ![vcName containsString:@"AWELiveNewPreStreamViewController"]) {
-        return AXIsRightArea(v);
+        return NO;
     }
 
     NSString *label = v.accessibilityLabel ?: @"";
@@ -335,7 +324,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V15";
+        title.text = @"AwemeX 设置 V16";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -381,7 +370,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V15：按 DYYY 参数补齐 arrangedSubviews / IESLiveStackView / VC 重刷。";
+        note.text = @"V16：移除会抢 Feed 上下滑动的页面级重刷与坐标兜底。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
@@ -430,28 +419,12 @@ static void AXShow(void) {
 %hook AWEElementStackView
 - (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
-- (void)setFrame:(CGRect)frame { %orig(frame); AXApplyElementEffects((UIView *)self); }
-- (void)setBounds:(CGRect)bounds { %orig(bounds); AXApplyElementEffects((UIView *)self); }
-- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
 %end
 
 %hook IESLiveStackView
 - (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
-- (void)setFrame:(CGRect)frame { %orig(frame); AXApplyElementEffects((UIView *)self); }
-- (void)setBounds:(CGRect)bounds { %orig(bounds); AXApplyElementEffects((UIView *)self); }
-- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
 %end
-
-%hook AWEPlayInteractionViewController
-- (void)viewDidLayoutSubviews {
-    %orig;
-    AXRefreshAllStacks();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
-}
-%end
-
-
 
 %hook AWESearchEntranceView
 - (void)layoutSubviews { %orig; AXApplySearchEntranceHide((UIView *)self); }

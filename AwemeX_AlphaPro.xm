@@ -1,23 +1,23 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 #import <math.h>
 
 static UIButton *axButton = nil;
 static NSTimer *axTimer = nil;
 static __weak UIView *axPanelRoot = nil;
-static BOOL axOpacityMutation = NO;
+static BOOL axInternalAlphaSet = NO;
 static const NSInteger AXPanelTag = 9527010;
 static const NSInteger AXFloatingButtonTag = 9527011;
+static const NSInteger AXScaledMarkTag = 9527012;
 
 static CGFloat AXFloat(NSString *key, CGFloat def) {
     id obj = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-    return obj && [obj respondsToSelector:@selector(floatValue)] ? [obj floatValue] : def;
+    return obj ? [obj floatValue] : def;
 }
 
 static BOOL AXBool(NSString *key, BOOL def) {
     id obj = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-    return obj && [obj respondsToSelector:@selector(boolValue)] ? [obj boolValue] : def;
+    return obj ? [obj boolValue] : def;
 }
 
 static void AXSetFloat(NSString *key, CGFloat value) {
@@ -25,15 +25,18 @@ static void AXSetFloat(NSString *key, CGFloat value) {
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
+static void AXSetBool(NSString *key, BOOL value) {
+    [[NSUserDefaults standardUserDefaults] setBool:value forKey:key];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
 static UIWindow *AXKeyWindow(void) {
     UIApplication *app = UIApplication.sharedApplication;
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in app.connectedScenes) {
+            if (scene.activationState != UISceneActivationStateForegroundActive) continue;
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
-            UIWindowScene *ws = (UIWindowScene *)scene;
-            for (UIWindow *window in ws.windows) {
-                if (window.isKeyWindow) return window;
-            }
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) if (w.isKeyWindow) return w;
         }
         for (UIScene *scene in app.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -42,25 +45,15 @@ static UIWindow *AXKeyWindow(void) {
         }
         return nil;
     }
-    UIWindow *legacyKeyWindow = nil;
-    @try { legacyKeyWindow = [app valueForKey:@"keyWindow"]; } @catch (__unused NSException *e) {}
-    if (legacyKeyWindow) return legacyKeyWindow;
-    NSArray *legacyWindows = nil;
-    @try { legacyWindows = [app valueForKey:@"windows"]; } @catch (__unused NSException *e) {}
-    return legacyWindows.firstObject;
+    UIWindow *legacy = nil;
+    @try { legacy = [app valueForKey:@"keyWindow"]; } @catch (__unused NSException *e) {}
+    if (legacy) return legacy;
+    NSArray *wins = nil;
+    @try { wins = [app valueForKey:@"windows"]; } @catch (__unused NSException *e) {}
+    return wins.firstObject;
 }
 
-static UIViewController *AXFirstAvailableViewControllerFromView(UIView *view) {
-    UIResponder *responder = view;
-    while (responder) {
-        responder = responder.nextResponder;
-        if ([responder isKindOfClass:UIViewController.class]) return (UIViewController *)responder;
-    }
-    return nil;
-}
-
-static BOOL AXIsInOurPanel(UIView *view) {
-    UIView *v = view;
+static BOOL AXIsOurView(UIView *v) {
     while (v) {
         if (v.tag == AXPanelTag || v.tag == AXFloatingButtonTag || v == axPanelRoot) return YES;
         v = v.superview;
@@ -68,325 +61,216 @@ static BOOL AXIsInOurPanel(UIView *view) {
     return NO;
 }
 
-static BOOL AXContainsSubviewOfClass(Class cls, UIView *container) {
-    if (!cls || !container) return NO;
-    for (UIView *sub in container.subviews) {
-        if ([sub isKindOfClass:cls]) return YES;
-        if (AXContainsSubviewOfClass(cls, sub)) return YES;
+static NSString *AXLower(NSString *s) { return s ? s.lowercaseString : @""; }
+
+static NSString *AXClassText(UIView *v) {
+    NSMutableString *s = [NSMutableString stringWithString:AXLower(NSStringFromClass(v.class))];
+    NSString *acc = AXLower(v.accessibilityLabel);
+    if (acc.length) [s appendFormat:@" %@", acc];
+    if ([v respondsToSelector:@selector(elementClassName)]) {
+        NSString *elem = nil;
+        @try { elem = ((NSString *(*)(id, SEL))objc_msgSend)(v, @selector(elementClassName)); } @catch (__unused NSException *e) {}
+        if (elem.length) [s appendFormat:@" %@", AXLower(elem)];
     }
+    return s;
+}
+
+static BOOL AXTextContainsAny(NSString *text, NSArray<NSString *> *tokens) {
+    for (NSString *t in tokens) if ([text containsString:t.lowercaseString]) return YES;
     return NO;
 }
 
-static NSString *AXElementClassName(UIView *view) {
-    if (!view || ![view respondsToSelector:@selector(elementClassName)]) return nil;
-    return ((NSString *(*)(id, SEL))objc_msgSend)(view, @selector(elementClassName));
+static CGRect AXWindowRect(UIView *v) {
+    if (!v || !v.window || !v.superview) return CGRectZero;
+    return [v.superview convertRect:v.frame toView:v.window];
 }
 
-static BOOL AXStackHasElementClassName(UIView *stack, NSArray<NSString *> *targetNames) {
-    if (!stack || targetNames.count == 0) return NO;
-    for (UIView *sub in [stack.subviews copy]) {
-        NSString *name = AXElementClassName(sub);
-        if (name.length > 0 && [targetNames containsObject:name]) return YES;
-    }
-    return NO;
-}
-
-static BOOL AXIsRightElementStackView(UIView *stack) {
-    if (!stack || AXIsInOurPanel(stack)) return NO;
-    UIViewController *vc = AXFirstAvailableViewControllerFromView(stack);
-    Class playVCClass = NSClassFromString(@"AWEPlayInteractionViewController");
-    if (!playVCClass || ![vc isKindOfClass:playVCClass]) return NO;
-    NSString *label = stack.accessibilityLabel ?: @"";
-    if ([label isEqualToString:@"right"]) return YES;
-    if (AXContainsSubviewOfClass(NSClassFromString(@"AWEPlayInteractionUserAvatarView"), stack)) return YES;
-    return AXStackHasElementClassName(stack, @[
-        @"AWEPlayInteractionUserAvatarOptElementElement",
-        @"AWEPlayInteractionLikeElement",
-        @"AWEPlayInteractionCommentElement",
-        @"AWEPlayInteractionCollectElement",
-        @"AWEPlayInteractionShareElement",
-        @"AWEPlayInteractionMusicCoverElement",
-        @"AWEPlayInteractionMusicDiskElement"
-    ]);
-}
-
-static void AXApplyDYYYRightStackScale(UIView *stack) {
-    if (!AXIsRightElementStackView(stack)) return;
-    CGFloat scale = AXFloat(@"ax_right_buttons_scale", 1.0);
-    if (scale < 0.50) scale = 0.50;
-    if (scale > 1.50) scale = 1.50;
-    CGAffineTransform targetTransform = CGAffineTransformIdentity;
-    if (fabs(scale - 1.0) >= 0.01) {
-        CGFloat ty = 0.0;
-        for (UIView *sub in [stack.subviews copy]) {
-            CGFloat h = sub.frame.size.height;
-            ty += (h - h * scale) / 2.0;
-        }
-        CGFloat w = stack.frame.size.width;
-        CGFloat right_tx = (w - w * scale) / 2.0;
-        targetTransform = CGAffineTransformMake(scale, 0, 0, scale, right_tx, ty);
-    }
-    if (!CGAffineTransformEqualToTransform(stack.transform, targetTransform)) stack.transform = targetTransform;
-}
-
-static BOOL AXClassNameContains(UIView *view, NSArray<NSString *> *tokens) {
-    NSString *cls = NSStringFromClass(view.class).lowercaseString ?: @"";
-    NSString *acc = (view.accessibilityLabel ?: @"").lowercaseString;
-    NSString *elem = (AXElementClassName(view) ?: @"").lowercaseString;
-    for (NSString *t in tokens) {
-        NSString *token = t.lowercaseString;
-        if ([cls containsString:token] || [acc containsString:token] || [elem containsString:token]) return YES;
-    }
-    return NO;
-}
-
-static CGRect AXScreenRect(UIView *view) {
-    if (!view || !view.window || !view.superview) return CGRectZero;
-    return [view.superview convertRect:view.frame toView:view.window];
-}
-
-static BOOL AXLooksLikeTopTab(UIView *view) {
-    if (AXIsInOurPanel(view) || view.hidden || view.alpha < 0.01 || !view.window) return NO;
-    CGRect r = AXScreenRect(view);
-    CGFloat sw = UIScreen.mainScreen.bounds.size.width;
-    if (CGRectIsEmpty(r) || r.origin.y < 15 || r.origin.y > 120) return NO;
-    if (r.size.width < 20 || r.size.width > 160 || r.size.height < 12 || r.size.height > 60) return NO;
-    if (CGRectGetMidX(r) < sw * 0.18 || CGRectGetMidX(r) > sw * 0.82) return NO;
-    return AXClassNameContains(view, @[@"label", @"button", @"tab", @"segment"]);
-}
-
-static BOOL AXLooksLikeSearch(UIView *view) {
-    if (AXIsInOurPanel(view) || view.hidden || !view.window) return NO;
-    CGRect r = AXScreenRect(view);
-    CGFloat sw = UIScreen.mainScreen.bounds.size.width;
-    if (r.origin.y > 150 || CGRectGetMidX(r) < sw * 0.55) return NO;
-    if (r.size.width > 70 || r.size.height > 70) return NO;
-    return AXClassNameContains(view, @[@"search", @"magnifier", @"discover"]);
-}
-
-static BOOL AXLooksLikeRightArea(UIView *view) {
-    if (!view || !view.window) return NO;
-    CGRect r = AXScreenRect(view);
-    CGFloat sw = UIScreen.mainScreen.bounds.size.width;
-    CGFloat sh = UIScreen.mainScreen.bounds.size.height;
+static BOOL AXLooksRightControl(UIView *v) {
+    if (!v || AXIsOurView(v) || v.hidden || v.alpha <= 0.01 || !v.window) return NO;
+    CGRect r = AXWindowRect(v);
     if (CGRectIsEmpty(r)) return NO;
-    if (CGRectGetMidX(r) < sw * 0.68) return NO;
-    if (CGRectGetMidY(r) < sh * 0.22 || CGRectGetMidY(r) > sh * 0.96) return NO;
-    if (r.size.width > sw * 0.35 || r.size.height > sh * 0.35) return NO;
-    return YES;
+    CGSize s = UIScreen.mainScreen.bounds.size;
+    CGFloat midX = CGRectGetMidX(r), midY = CGRectGetMidY(r);
+    if (midX < s.width * 0.62) return NO;
+    if (midY < s.height * 0.18 || midY > s.height * 0.94) return NO;
+    if (r.size.width > s.width * 0.42 || r.size.height > s.height * 0.42) return NO;
+    NSString *txt = AXClassText(v);
+    if (AXTextContainsAny(txt, @[@"avatar", @"useravatar", @"like", @"digg", @"comment", @"favorite", @"collect", @"share", @"forward", @"music", @"cover", @"disk", @"disc", @"sound", @"awemeplayinteraction"])) return YES;
+    if (([v isKindOfClass:UIImageView.class] || [v isKindOfClass:UIButton.class] || [v isKindOfClass:UILabel.class]) && r.size.width >= 12 && r.size.width <= 96 && r.size.height >= 10 && r.size.height <= 96) return YES;
+    return NO;
 }
 
-static BOOL AXLooksLikeRightButtonOrMusic(UIView *view) {
-    if (AXIsInOurPanel(view) || view.hidden || view.alpha < 0.01 || !AXLooksLikeRightArea(view)) return NO;
-    if (AXClassNameContains(view, @[@"avatar", @"useravatar", @"like", @"digg", @"favorite", @"collect", @"comment", @"share", @"forward", @"music", @"cover", @"disk", @"disc", @"sound", @"awemeplayinteraction"])) return YES;
-    CGRect r = AXScreenRect(view);
-    BOOL iconSize = (r.size.width >= 18 && r.size.width <= 90 && r.size.height >= 12 && r.size.height <= 90);
-    if (!iconSize) return NO;
-    return [view isKindOfClass:UIImageView.class] || [view isKindOfClass:UIButton.class] || [view isKindOfClass:UILabel.class];
+static BOOL AXLooksSearch(UIView *v) {
+    if (!v || AXIsOurView(v) || v.hidden || !v.window) return NO;
+    CGRect r = AXWindowRect(v);
+    if (CGRectIsEmpty(r)) return NO;
+    CGSize s = UIScreen.mainScreen.bounds.size;
+    if (CGRectGetMidY(r) > 150 || CGRectGetMidX(r) < s.width * 0.55) return NO;
+    if (r.size.width > 100 || r.size.height > 100) return NO;
+    NSString *txt = AXClassText(v);
+    if (AXTextContainsAny(txt, @[@"search", @"magnifier", @"discover"])) return YES;
+    if ([v isKindOfClass:UIButton.class] || [v isKindOfClass:UIImageView.class]) return YES;
+    return NO;
 }
 
-static void AXApplyAlphaIfNeeded(UIView *view, CGFloat alpha) {
-    if (!view || AXIsInOurPanel(view)) return;
+static BOOL AXLooksTopTab(UIView *v) {
+    if (!v || AXIsOurView(v) || v.hidden || !v.window) return NO;
+    CGRect r = AXWindowRect(v);
+    if (CGRectIsEmpty(r)) return NO;
+    CGSize s = UIScreen.mainScreen.bounds.size;
+    if (CGRectGetMidY(r) < 18 || CGRectGetMidY(r) > 125) return NO;
+    if (CGRectGetMidX(r) < s.width * 0.18 || CGRectGetMidX(r) > s.width * 0.82) return NO;
+    if (r.size.width < 18 || r.size.width > 180 || r.size.height < 10 || r.size.height > 70) return NO;
+    NSString *txt = AXClassText(v);
+    return AXTextContainsAny(txt, @[@"label", @"button", @"tab", @"segment", @"recommend", @"follow"]);
+}
+
+static BOOL AXSubviewHasRightControl(UIView *v, NSInteger depth) {
+    if (!v || depth <= 0) return NO;
+    for (UIView *sub in [v.subviews copy]) {
+        if (AXLooksRightControl(sub)) return YES;
+        if (AXSubviewHasRightControl(sub, depth - 1)) return YES;
+    }
+    return NO;
+}
+
+static BOOL AXLooksRightStackContainer(UIView *v) {
+    if (!v || AXIsOurView(v) || v.hidden || !v.window) return NO;
+    CGRect r = AXWindowRect(v);
+    if (CGRectIsEmpty(r)) return NO;
+    CGSize s = UIScreen.mainScreen.bounds.size;
+    if (CGRectGetMidX(r) < s.width * 0.58) return NO;
+    if (CGRectGetMidY(r) < s.height * 0.25 || CGRectGetMidY(r) > s.height * 0.88) return NO;
+    if (r.size.width < 24 || r.size.width > s.width * 0.48) return NO;
+    if (r.size.height < 80 || r.size.height > s.height * 0.82) return NO;
+    NSString *txt = AXClassText(v);
+    if (AXTextContainsAny(txt, @[@"elementstack", @"stack", @"right", @"interaction"]) && AXSubviewHasRightControl(v, 3)) return YES;
+    NSInteger hits = 0;
+    for (UIView *sub in [v.subviews copy]) if (AXLooksRightControl(sub) || AXSubviewHasRightControl(sub, 2)) hits++;
+    return hits >= 3;
+}
+
+static void AXSetViewAlpha(UIView *v, CGFloat alpha) {
     CGFloat a = MAX(0.0, MIN(1.0, alpha));
-    if (fabs(view.alpha - a) < 0.01) return;
-    axOpacityMutation = YES;
-    view.alpha = a;
-    axOpacityMutation = NO;
+    if (fabs(v.alpha - a) < 0.01) return;
+    axInternalAlphaSet = YES;
+    v.alpha = a;
+    axInternalAlphaSet = NO;
 }
 
-static void AXTraverseApply(UIView *view, CGFloat topAlpha, CGFloat rightAlpha, BOOL hideSearch) {
-    if (!view || AXIsInOurPanel(view)) return;
-    if (hideSearch && AXLooksLikeSearch(view)) AXApplyAlphaIfNeeded(view, 0.0);
-    else if (AXLooksLikeTopTab(view)) AXApplyAlphaIfNeeded(view, topAlpha);
-    else if (AXLooksLikeRightButtonOrMusic(view)) AXApplyAlphaIfNeeded(view, rightAlpha);
-    for (UIView *sub in [view.subviews copy]) AXTraverseApply(sub, topAlpha, rightAlpha, hideSearch);
+static void AXApplyScaleToContainer(UIView *v) {
+    CGFloat scale = AXFloat(@"ax_right_buttons_scale", 1.0);
+    scale = MAX(0.50, MIN(1.50, scale));
+    CGAffineTransform t = CGAffineTransformIdentity;
+    if (fabs(scale - 1.0) >= 0.01) {
+        CGFloat w = v.bounds.size.width;
+        CGFloat tx = (w - w * scale) / 2.0;
+        t = CGAffineTransformMake(scale, 0, 0, scale, tx, 0);
+    }
+    if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
+    v.tag = AXScaledMarkTag;
 }
 
-static void AXApplyVisibleSettings(void) {
-    UIWindow *win = AXKeyWindow();
-    if (!win) return;
-    AXTraverseApply(win, AXFloat(@"ax_top_alpha", 1.0), AXFloat(@"ax_right_buttons_alpha", 1.0), AXBool(@"ax_hide_search", NO));
+static void AXTraverseApply(UIView *root) {
+    if (!root || AXIsOurView(root)) return;
+    CGFloat rightAlpha = AXFloat(@"ax_right_buttons_alpha", 1.0);
+    CGFloat topAlpha = AXFloat(@"ax_top_alpha", 1.0);
+    BOOL hideSearch = AXBool(@"ax_hide_search", NO);
+    if (AXLooksRightStackContainer(root)) AXApplyScaleToContainer(root);
+    if (hideSearch && AXLooksSearch(root)) AXSetViewAlpha(root, 0.0);
+    else if (AXLooksRightControl(root)) AXSetViewAlpha(root, rightAlpha);
+    else if (AXLooksTopTab(root)) AXSetViewAlpha(root, topAlpha);
+    for (UIView *sub in [root.subviews copy]) AXTraverseApply(sub);
+}
+
+static void AXApplyAll(void) {
+    UIWindow *w = AXKeyWindow();
+    if (!w) return;
+    AXTraverseApply(w);
 }
 
 @interface AXSettingsPanel : UIView
 @end
 
 @implementation AXSettingsPanel
-
-- (UILabel *)label:(NSString *)text y:(CGFloat)y {
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, y, self.bounds.size.width - 32, 22)];
-    label.text = text;
-    label.textColor = UIColor.whiteColor;
-    label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
-    [self addSubview:label];
-    return label;
+- (UILabel *)makeLabel:(NSString *)text y:(CGFloat)y {
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(16, y, self.bounds.size.width - 32, 22)];
+    l.text = text; l.textColor = UIColor.whiteColor; l.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    [self addSubview:l]; return l;
 }
-
-- (UISlider *)sliderKey:(NSString *)key def:(CGFloat)def min:(CGFloat)min max:(CGFloat)max y:(CGFloat)y valueLabel:(UILabel *)valueLabel {
-    UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(16, y, self.bounds.size.width - 32, 34)];
-    slider.minimumValue = min;
-    slider.maximumValue = max;
-    slider.value = AXFloat(key, def);
-    slider.accessibilityIdentifier = key;
-    valueLabel.text = [NSString stringWithFormat:@"%@：%.2f", valueLabel.text, slider.value];
-    [slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:slider];
-    return slider;
+- (UISlider *)makeSlider:(NSString *)key def:(CGFloat)def min:(CGFloat)min max:(CGFloat)max y:(CGFloat)y {
+    UISlider *s = [[UISlider alloc] initWithFrame:CGRectMake(16, y, self.bounds.size.width - 32, 34)];
+    s.minimumValue = min; s.maximumValue = max; s.value = AXFloat(key, def); s.accessibilityIdentifier = key;
+    [s addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [self addSubview:s]; return s;
 }
-
 - (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (!self) return nil;
-    self.tag = AXPanelTag;
-    self.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.84];
-    self.layer.cornerRadius = 18;
-    self.layer.masksToBounds = YES;
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, frame.size.width - 64, 28)];
-    title.text = @"AX 设置 V10.5";
-    title.textColor = UIColor.whiteColor;
-    title.font = [UIFont boldSystemFontOfSize:18];
-    [self addSubview:title];
-    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(frame.size.width - 48, 10, 36, 36);
-    [close setTitle:@"×" forState:UIControlStateNormal];
-    close.titleLabel.font = [UIFont systemFontOfSize:30 weight:UIFontWeightRegular];
-    [close setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    [close addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:close];
-    CGFloat y = 54;
-    UILabel *v1 = [self label:@"顶部推荐/关注透明度" y:y]; y += 22;
-    [self sliderKey:@"ax_top_alpha" def:1.0 min:0.0 max:1.0 y:y valueLabel:v1]; y += 48;
-    UILabel *v2 = [self label:@"右侧按钮透明度" y:y]; y += 22;
-    [self sliderKey:@"ax_right_buttons_alpha" def:1.0 min:0.0 max:1.0 y:y valueLabel:v2]; y += 48;
-    UILabel *v3 = [self label:@"右侧按钮缩放" y:y]; y += 22;
-    [self sliderKey:@"ax_right_buttons_scale" def:1.0 min:0.5 max:1.5 y:y valueLabel:v3]; y += 52;
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(16, y, 60, 34)];
-    sw.on = AXBool(@"ax_hide_search", NO);
-    [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:sw];
-    UILabel *hide = [[UILabel alloc] initWithFrame:CGRectMake(88, y + 4, frame.size.width - 104, 24)];
-    hide.text = @"隐藏右上角搜索";
-    hide.textColor = UIColor.whiteColor;
-    hide.font = [UIFont systemFontOfSize:14];
-    [self addSubview:hide];
-    UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(16, y + 46, frame.size.width - 32, 58)];
-    note.text = @"V10.5：菜单创建改为多入口触发，避免错过 applicationDidBecomeActive。";
-    note.numberOfLines = 0;
-    note.textColor = [UIColor colorWithWhite:1 alpha:0.72];
-    note.font = [UIFont systemFontOfSize:12];
-    [self addSubview:note];
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
-    [self addGestureRecognizer:pan];
+    self = [super initWithFrame:frame]; if (!self) return nil;
+    self.tag = AXPanelTag; self.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.84]; self.layer.cornerRadius = 18;
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, frame.size.width - 64, 30)];
+    title.text = @"AwemeX AlphaPro V10.6"; title.textColor = UIColor.whiteColor; title.font = [UIFont boldSystemFontOfSize:17]; [self addSubview:title];
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem]; close.frame = CGRectMake(frame.size.width-48, 8, 40, 36); [close setTitle:@"×" forState:UIControlStateNormal]; close.titleLabel.font=[UIFont systemFontOfSize:30]; [close setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; [close addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside]; [self addSubview:close];
+    CGFloat y = 52;
+    [self makeLabel:@"顶部推荐/关注透明度" y:y]; y += 22; [self makeSlider:@"ax_top_alpha" def:1 min:0 max:1 y:y]; y += 44;
+    [self makeLabel:@"右侧按钮透明度" y:y]; y += 22; [self makeSlider:@"ax_right_buttons_alpha" def:1 min:0 max:1 y:y]; y += 44;
+    [self makeLabel:@"右侧按钮缩放" y:y]; y += 22; [self makeSlider:@"ax_right_buttons_scale" def:1 min:0.5 max:1.5 y:y]; y += 44;
+    UISwitch *search = [[UISwitch alloc] initWithFrame:CGRectMake(16, y, 56, 34)]; search.on = AXBool(@"ax_hide_search", NO); search.accessibilityIdentifier=@"ax_hide_search"; [search addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged]; [self addSubview:search];
+    UILabel *sl = [[UILabel alloc] initWithFrame:CGRectMake(88, y+5, frame.size.width-104, 24)]; sl.text=@"隐藏右上搜索"; sl.textColor=UIColor.whiteColor; sl.font=[UIFont systemFontOfSize:14]; [self addSubview:sl]; y += 42;
+    UISwitch *hideAX = [[UISwitch alloc] initWithFrame:CGRectMake(16, y, 56, 34)]; hideAX.on = AXBool(@"ax_hide_ax_button", NO); hideAX.accessibilityIdentifier=@"ax_hide_ax_button"; [hideAX addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged]; [self addSubview:hideAX];
+    UILabel *hl = [[UILabel alloc] initWithFrame:CGRectMake(88, y+5, frame.size.width-104, 24)]; hl.text=@"隐藏 AX 悬浮图标"; hl.textColor=UIColor.whiteColor; hl.font=[UIFont systemFontOfSize:14]; [self addSubview:hl];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)]; [self addGestureRecognizer:pan];
     return self;
 }
-
-- (void)sliderChanged:(UISlider *)slider {
-    AXSetFloat(slider.accessibilityIdentifier, slider.value);
-    AXApplyVisibleSettings();
-}
-
-- (void)switchChanged:(UISwitch *)sw {
-    [[NSUserDefaults standardUserDefaults] setBool:sw.on forKey:@"ax_hide_search"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
-    AXApplyVisibleSettings();
-}
-
+- (void)sliderChanged:(UISlider *)s { AXSetFloat(s.accessibilityIdentifier, s.value); AXApplyAll(); }
+- (void)switchChanged:(UISwitch *)s { AXSetBool(s.accessibilityIdentifier, s.on); if ([s.accessibilityIdentifier isEqualToString:@"ax_hide_ax_button"] && axButton) axButton.hidden = s.on; AXApplyAll(); }
 - (void)closePanel { [self removeFromSuperview]; axPanelRoot = nil; }
-
-- (void)pan:(UIPanGestureRecognizer *)pan {
-    CGPoint t = [pan translationInView:self.superview];
-    self.center = CGPointMake(self.center.x + t.x, self.center.y + t.y);
-    [pan setTranslation:CGPointZero inView:self.superview];
-}
-
+- (void)pan:(UIPanGestureRecognizer *)pan { CGPoint t=[pan translationInView:self.superview]; self.center=CGPointMake(self.center.x+t.x,self.center.y+t.y); [pan setTranslation:CGPointZero inView:self.superview]; }
 @end
 
 static void AXShowPanel(void) {
-    UIWindow *win = AXKeyWindow();
-    if (!win) return;
-    if (axPanelRoot) { [axPanelRoot removeFromSuperview]; axPanelRoot = nil; return; }
-    CGFloat w = MIN(340, win.bounds.size.width - 32);
-    AXSettingsPanel *panel = [[AXSettingsPanel alloc] initWithFrame:CGRectMake((win.bounds.size.width - w) / 2.0, 110, w, 300)];
-    axPanelRoot = panel;
-    [win addSubview:panel];
+    UIWindow *w = AXKeyWindow(); if (!w) return;
+    if (axPanelRoot) { [axPanelRoot removeFromSuperview]; axPanelRoot=nil; return; }
+    CGFloat width = MIN(350, w.bounds.size.width - 28);
+    AXSettingsPanel *p = [[AXSettingsPanel alloc] initWithFrame:CGRectMake((w.bounds.size.width-width)/2.0, 96, width, 330)];
+    axPanelRoot = p; [w addSubview:p];
 }
 
 static void AXEnsureButton(void) {
-    UIWindow *win = AXKeyWindow();
-    if (!win) return;
-    UIView *old = [win viewWithTag:AXFloatingButtonTag];
-    if (old && old.window == win) { axButton = (UIButton *)old; return; }
-    axButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    axButton.tag = AXFloatingButtonTag;
-    axButton.frame = CGRectMake(12, 180, 52, 52);
-    axButton.layer.cornerRadius = 26;
-    axButton.layer.borderWidth = 1.0;
-    axButton.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.55].CGColor;
-    axButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.62];
-    [axButton setTitle:@"AX" forState:UIControlStateNormal];
-    [axButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    axButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    UIWindow *w = AXKeyWindow(); if (!w) return;
+    if (axButton && axButton.window == w) { axButton.hidden = AXBool(@"ax_hide_ax_button", NO); return; }
+    axButton = [UIButton buttonWithType:UIButtonTypeCustom]; axButton.tag = AXFloatingButtonTag; axButton.frame = CGRectMake(12, 180, 50, 50); axButton.layer.cornerRadius = 25; axButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.5];
+    [axButton setTitle:@"AX" forState:UIControlStateNormal]; [axButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; axButton.titleLabel.font=[UIFont boldSystemFontOfSize:14];
     [axButton addTarget:[UIApplication sharedApplication] action:@selector(ax_openSettingsPanel) forControlEvents:UIControlEventTouchUpInside];
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[UIApplication sharedApplication] action:@selector(ax_panButton:)];
-    [axButton addGestureRecognizer:pan];
-    [win addSubview:axButton];
-    [win bringSubviewToFront:axButton];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[UIApplication sharedApplication] action:@selector(ax_panButton:)]; [axButton addGestureRecognizer:pan];
+    axButton.hidden = AXBool(@"ax_hide_ax_button", NO); [w addSubview:axButton];
 }
 
-static void AXStartMenuLoop(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        AXEnsureButton();
-        AXApplyVisibleSettings();
-        if (!axTimer) {
-            axTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *timer) {
-                AXEnsureButton();
-                AXApplyVisibleSettings();
-            }];
-            [[NSRunLoop mainRunLoop] addTimer:axTimer forMode:NSRunLoopCommonModes];
-        }
-    });
+static void AXStartTimer(void) {
+    if (axTimer) return;
+    axTimer = [NSTimer scheduledTimerWithTimeInterval:0.8 repeats:YES block:^(__unused NSTimer *timer) { AXEnsureButton(); AXApplyAll(); }];
+    [[NSRunLoop mainRunLoop] addTimer:axTimer forMode:NSRunLoopCommonModes];
 }
-
-%hook AWEElementStackView
-- (void)layoutSubviews { %orig; AXApplyDYYYRightStackScale((UIView *)self); }
-- (NSArray *)arrangedSubviews { NSArray *ret = %orig; AXApplyDYYYRightStackScale((UIView *)self); return ret; }
-%end
-
-%hook UIViewController
-- (void)viewDidAppear:(BOOL)animated { %orig; AXStartMenuLoop(); }
-%end
 
 %hook UIView
-- (void)didMoveToWindow { %orig; AXStartMenuLoop(); }
+- (void)didMoveToWindow { %orig; if (self.window) { AXApplyAll(); } }
+- (void)layoutSubviews { %orig; if (!AXIsOurView((UIView *)self)) { if (AXLooksRightStackContainer((UIView *)self)) AXApplyScaleToContainer((UIView *)self); } }
 - (void)setAlpha:(CGFloat)alpha {
-    if (!axOpacityMutation && !AXIsInOurPanel((UIView *)self)) {
-        if (AXLooksLikeRightButtonOrMusic((UIView *)self)) {
-            CGFloat target = AXFloat(@"ax_right_buttons_alpha", 1.0);
-            %orig(MAX(0.0, MIN(1.0, alpha * target)));
-            return;
-        }
-        if (AXLooksLikeTopTab((UIView *)self)) {
-            CGFloat target = AXFloat(@"ax_top_alpha", 1.0);
-            %orig(MAX(0.0, MIN(1.0, alpha * target)));
-            return;
-        }
+    if (!axInternalAlphaSet && !AXIsOurView((UIView *)self)) {
+        if (AXBool(@"ax_hide_search", NO) && AXLooksSearch((UIView *)self)) { %orig(0.0); return; }
+        if (AXLooksRightControl((UIView *)self)) { %orig(MAX(0.0, MIN(1.0, alpha * AXFloat(@"ax_right_buttons_alpha", 1.0)))); return; }
+        if (AXLooksTopTab((UIView *)self)) { %orig(MAX(0.0, MIN(1.0, alpha * AXFloat(@"ax_top_alpha", 1.0)))); return; }
     }
     %orig;
 }
 %end
 
 %hook UIApplication
-- (void)applicationDidBecomeActive:(UIApplication *)application { %orig; AXStartMenuLoop(); }
+- (void)applicationDidFinishLaunching:(UIApplication *)app { %orig; AXEnsureButton(); AXStartTimer(); }
+- (void)applicationDidBecomeActive:(UIApplication *)app { %orig; AXEnsureButton(); AXStartTimer(); AXApplyAll(); }
 %new
 - (void)ax_openSettingsPanel { AXShowPanel(); }
 %new
-- (void)ax_panButton:(UIPanGestureRecognizer *)pan {
-    UIView *view = pan.view;
-    if (!view || !view.superview) return;
-    CGPoint t = [pan translationInView:view.superview];
-    view.center = CGPointMake(view.center.x + t.x, view.center.y + t.y);
-    [pan setTranslation:CGPointZero inView:view.superview];
-}
+- (void)ax_panButton:(UIPanGestureRecognizer *)pan { UIView *v=pan.view; if (!v || !v.superview) return; CGPoint t=[pan translationInView:v.superview]; v.center=CGPointMake(v.center.x+t.x,v.center.y+t.y); [pan setTranslation:CGPointZero inView:v.superview]; }
 %end
 
 %ctor {
@@ -394,7 +278,6 @@ static void AXStartMenuLoop(void) {
         if ([[NSUserDefaults standardUserDefaults] objectForKey:@"ax_top_alpha"] == nil) AXSetFloat(@"ax_top_alpha", 1.0);
         if ([[NSUserDefaults standardUserDefaults] objectForKey:@"ax_right_buttons_alpha"] == nil) AXSetFloat(@"ax_right_buttons_alpha", 1.0);
         if ([[NSUserDefaults standardUserDefaults] objectForKey:@"ax_right_buttons_scale"] == nil) AXSetFloat(@"ax_right_buttons_scale", 1.0);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXStartMenuLoop(); });
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXStartMenuLoop(); });
+        dispatch_async(dispatch_get_main_queue(), ^{ AXEnsureButton(); AXStartTimer(); AXApplyAll(); });
     }
 }

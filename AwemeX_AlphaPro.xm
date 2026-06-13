@@ -178,7 +178,6 @@ static void AXApplyElementEffects(UIView *v) {
     }
 }
 
-static void AXApplyScale(UIView *v) { AXApplyElementEffects(v); }
 
 static void AXRefreshButton(void) {
     if (!axButton) return;

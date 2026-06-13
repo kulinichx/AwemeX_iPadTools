@@ -125,24 +125,45 @@ static BOOL AXStackHasElementClassName(UIView *container, NSString *targetName) 
     return NO;
 }
 
+static BOOL AXIsSafeRightAreaStack(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
+    if ([v isKindOfClass:UIScrollView.class]) return NO;
+    UIWindow *w = AXKeyWindow();
+    if (!w) return NO;
+    CGRect f = [v.superview convertRect:v.frame toView:w];
+    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
+    // 只允许右侧窄按钮栏：避免再次误伤 Feed 上下滑动容器。
+    if (f.origin.x < screenW * 0.68) return NO;
+    if (f.origin.y < screenH * 0.18) return NO;
+    if (f.size.width > screenW * 0.28) return NO;
+    if (f.size.height < 80.0 || f.size.height > screenH * 0.78) return NO;
+    if (v.subviews.count < 2) return NO;
+    return YES;
+}
+
 static BOOL AXIsRightStack(UIView *v) {
     if (!AXIsElementStackLike(v)) return NO;
     if (AXIsAwemeXPanelView(v)) return NO;
 
-    UIViewController *vc = AXFirstViewControllerFromView(v);
-    NSString *vcName = vc ? NSStringFromClass(vc.class) : @"";
-
-    // V16：不再用坐标范围兜底判断右侧栏。
-    // 之前会误伤 Feed 的滑动/手势容器，导致视频无法上下滑动。
-    if (![vcName containsString:@"AWEPlayInteractionViewController"] &&
-        ![vcName containsString:@"AWELiveNewPreStreamViewController"]) {
-        return NO;
-    }
-
     NSString *label = v.accessibilityLabel ?: @"";
     BOOL hasAvatar = AXContainsSubviewOfClass(v, NSClassFromString(@"AWEPlayInteractionUserAvatarView"));
     BOOL hasUserAvatarElement = AXStackHasElementClassName(v, @"AWEPlayInteractionUserAvatarOptElementElement");
-    return [label isEqualToString:@"right"] || hasAvatar || hasUserAvatarElement;
+
+    // V17：先认 DYYY 同款特征。V16 把 VC 判断放太前，iPad 上拿不到
+    // AWEPlayInteractionViewController 时会直接返回，导致缩放不生效。
+    if ([label isEqualToString:@"right"] || hasAvatar || hasUserAvatarElement) {
+        return YES;
+    }
+
+    UIViewController *vc = AXFirstViewControllerFromView(v);
+    NSString *vcName = vc ? NSStringFromClass(vc.class) : @"";
+    BOOL inPlayVC = [vcName containsString:@"AWEPlayInteractionViewController"] ||
+                    [vcName containsString:@"AWELiveNewPreStreamViewController"];
+
+    // 最后才使用更严格的坐标兜底，只匹配右侧窄按钮栏，不能匹配大容器/滑动层。
+    return inPlayVC && AXIsSafeRightAreaStack(v);
 }
 
 static BOOL AXIsTopStack(UIView *v) {
@@ -324,7 +345,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V16";
+        title.text = @"AwemeX 设置 V17";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -370,7 +391,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V16：移除会抢 Feed 上下滑动的页面级重刷与坐标兜底。";
+        note.text = @"V17：恢复右侧缩放识别；保留防误伤 Feed 滑动的窄栏限制。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;

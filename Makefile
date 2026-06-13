@@ -11,9 +11,13 @@ endif
 
 TWEAK_NAME = AwemeX_AlphaPro
 
-AwemeX_AlphaPro_FILES = AwemeX_AlphaPro.xm
-AwemeX_AlphaPro_FRAMEWORKS = UIKit
+AwemeX_AlphaPro_FILES = \
+	AwemeX_AlphaPro.xm \
+	AwemeXSettings.xm \
+	AwemeXSettingsHelper.m \
+	AwemeXCustomInputView.m
 
+AwemeX_AlphaPro_FRAMEWORKS = UIKit Foundation QuartzCore
 AwemeX_AlphaPro_CFLAGS = -fobjc-arc -w
 
 include $(THEOS)/makefiles/common.mk

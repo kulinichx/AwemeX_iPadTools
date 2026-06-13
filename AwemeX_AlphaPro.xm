@@ -18,6 +18,8 @@ static NSString * const kAXTopAlpha = @"ax_top_alpha";
 static NSString * const kAXRightAlpha = @"ax_right_alpha";
 static NSString * const kAXScale = @"ax_scale";
 static NSString * const kAXIconAlpha = @"ax_icon_alpha";
+static NSString * const kAXGlobalAlpha = @"ax_global_alpha";
+static NSString * const kAXNicknameScale = @"ax_nickname_scale";
 static NSString * const kAXHideSearch = @"ax_hide_search";
 static NSString * const kAXShowButton = @"ax_show_button";
 
@@ -34,6 +36,28 @@ static BOOL AXBool(NSString *key, BOOL def) {
 static void AXSet(NSString *key, id value) {
     [[NSUserDefaults standardUserDefaults] setObject:value forKey:key];
     [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+static CGFloat AXClamp01(CGFloat v) {
+    return MIN(MAX(v, 0.0), 1.0);
+}
+
+static CGFloat AXGlobalAlpha(void) {
+    return AXClamp01(AXFloat(kAXGlobalAlpha, 1.0));
+}
+
+static CGFloat AXEffectiveAlpha(NSString *key, CGFloat def) {
+    return AXClamp01(AXFloat(key, def) * AXGlobalAlpha());
+}
+
+static char kAXBaseAlphaKey;
+static void AXApplyAlphaKeepingBase(UIView *v, CGFloat multiplier) {
+    if (!v) return;
+    NSNumber *stored = objc_getAssociatedObject(v, &kAXBaseAlphaKey);
+    CGFloat baseAlpha = stored ? stored.floatValue : v.alpha;
+    if (!stored) objc_setAssociatedObject(v, &kAXBaseAlphaKey, @(baseAlpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CGFloat finalAlpha = AXClamp01(baseAlpha * multiplier);
+    if (fabs(v.alpha - finalAlpha) > 0.001) v.alpha = finalAlpha;
 }
 
 static UIWindow *AXKeyWindow(void) {
@@ -88,6 +112,41 @@ static BOOL AXIsTopAreaView(UIView *v) {
     if (f.size.width > screenW * 0.65 || f.size.height > 90.0) return NO;
     if (f.origin.x > screenW * 0.72) return NO;
     return YES;
+}
+
+static BOOL AXAncestorIsElementStackLike(UIView *v) {
+    UIView *cur = v.superview;
+    while (cur) {
+        if (AXIsElementStackLike(cur)) return YES;
+        cur = cur.superview;
+    }
+    return NO;
+}
+
+static BOOL AXIsOverlayLeafView(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
+    if (AXAncestorIsElementStackLike(v)) return NO;
+    if (![v isKindOfClass:UILabel.class] && ![v isKindOfClass:UIButton.class] && ![v isKindOfClass:UIImageView.class]) return NO;
+    UIWindow *w = v.window ?: AXKeyWindow();
+    if (!w) return NO;
+    CGRect f = [v.superview convertRect:v.frame toView:w];
+    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
+    if (f.size.width > screenW * 0.75 || f.size.height > 130.0) return NO;
+
+    // 顶部频道、左下昵称文案、底栏文字图标、右侧散落图标/文字。只处理叶子控件，避免影响视频画面和 Feed 滑动层。
+    if (AXIsTopAreaView(v)) return YES;
+    if (f.origin.y > screenH * 0.60) return YES;
+    if (f.origin.x < screenW * 0.26 && f.origin.y > screenH * 0.36) return YES;
+    if (f.origin.x > screenW * 0.72 && f.origin.y > screenH * 0.18) return YES;
+    return NO;
+}
+
+static void AXApplyOverlayLeafAlpha(UIView *v) {
+    if (!AXIsOverlayLeafView(v)) return;
+    CGFloat alpha = AXIsTopAreaView(v) ? AXEffectiveAlpha(kAXTopAlpha, 0.65) : AXGlobalAlpha();
+    AXApplyAlphaKeepingBase(v, alpha);
 }
 
 static UIViewController *AXFirstViewControllerFromView(UIView *view) {
@@ -191,6 +250,34 @@ static BOOL AXIsRightStack(UIView *v) {
     return inPlayVC && AXIsSafeRightAreaStack(v);
 }
 
+static BOOL AXIsLooseLeftAreaStack(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
+    if ([v isKindOfClass:UIScrollView.class]) return NO;
+    UIWindow *w = v.window ?: AXKeyWindow();
+    if (!w) return NO;
+    CGRect f = [v.superview convertRect:v.frame toView:w];
+    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
+    if (f.origin.x > screenW * 0.58) return NO;
+    if (f.origin.y < screenH * 0.45) return NO;
+    if (f.size.width > screenW * 0.75 || f.size.height > screenH * 0.45) return NO;
+    if (v.subviews.count < 1) return NO;
+    return YES;
+}
+
+static BOOL AXIsLeftStack(UIView *v) {
+    if (!AXIsElementStackLike(v)) return NO;
+    if (AXIsAwemeXPanelView(v)) return NO;
+
+    NSString *label = v.accessibilityLabel ?: @"";
+    BOOL hasAnchor = AXContainsSubviewOfClass(v, NSClassFromString(@"AWEFeedAnchorContainerView"));
+    BOOL hasDescElement = AXStackHasElementClassName(v, @"AWEPlayInteractionDescriptionElement");
+    if ([label isEqualToString:@"left"] || hasAnchor || hasDescElement) return YES;
+
+    return AXIsLooseLeftAreaStack(v);
+}
+
 static BOOL AXIsTopStack(UIView *v) {
     if (!AXIsElementStackLike(v)) return NO;
     if (AXIsAwemeXPanelView(v)) return NO;
@@ -214,6 +301,22 @@ static CGAffineTransform AXRightStackTargetTransform(UIView *v) {
     return CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
 }
 
+static CGAffineTransform AXLeftStackTargetTransform(UIView *v) {
+    CGFloat scale = AXFloat(kAXNicknameScale, 1.0);
+    if (scale <= 0 || fabs(scale - 1.0) <= 0.001) return CGAffineTransformIdentity;
+
+    NSArray *subviews = [v.subviews copy];
+    CGFloat ty = 0;
+    for (UIView *view in subviews) {
+        CGFloat viewHeight = view.frame.size.height;
+        ty += (viewHeight - viewHeight * scale) / 2;
+    }
+    CGFloat frameWidth = v.frame.size.width;
+    CGFloat leftTX = (frameWidth - frameWidth * scale) / 2 - frameWidth * (1 - scale);
+    CGAffineTransform t = CGAffineTransformMakeScale(scale, scale);
+    return CGAffineTransformTranslate(t, leftTX / scale, ty / scale);
+}
+
 static void AXApplyElementEffects(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v)) return;
     if (axApplyingElementEffects) return;
@@ -221,20 +324,28 @@ static void AXApplyElementEffects(UIView *v) {
     axApplyingElementEffects = YES;
 
     if (AXIsRightStack(v)) {
-        CGFloat alpha = AXFloat(kAXRightAlpha, 0.80);
+        CGFloat alpha = AXEffectiveAlpha(kAXRightAlpha, 0.80);
         CGAffineTransform t = AXRightStackTargetTransform(v);
 
         // DYYY iPad 同款：直接作用在 AWEElementStackView 本体。
-        // 之前缩放会被系统后续 setTransform(identity) 覆盖；V19 会在 setTransform 里守护。
+        // 之前缩放会被系统后续 setTransform(identity) 覆盖；V20 会在 setTransform 里守护。
         if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
-        if (fabs(v.alpha - alpha) > 0.001) v.alpha = alpha;
+        AXApplyAlphaKeepingBase(v, alpha);
+        axApplyingElementEffects = NO;
+        return;
+    }
+
+    if (AXIsLeftStack(v)) {
+        CGAffineTransform t = AXLeftStackTargetTransform(v);
+        if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
+        AXApplyAlphaKeepingBase(v, AXGlobalAlpha());
         axApplyingElementEffects = NO;
         return;
     }
 
     if (AXIsTopStack(v)) {
-        CGFloat alpha = AXFloat(kAXTopAlpha, 0.65);
-        if (fabs(v.alpha - alpha) > 0.001) v.alpha = alpha;
+        CGFloat alpha = AXEffectiveAlpha(kAXTopAlpha, 0.65);
+        AXApplyAlphaKeepingBase(v, alpha);
     }
 
     axApplyingElementEffects = NO;
@@ -277,8 +388,8 @@ static void AXApplyToSubviews(UIView *view) {
     if (!view) return;
     if (AXIsElementStackLike(view)) {
         AXApplyElementEffects(view);
-    } else if (([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIButton.class] || [view isKindOfClass:UIImageView.class]) && AXIsTopAreaView(view)) {
-        view.alpha = AXFloat(kAXTopAlpha, 0.65);
+    } else {
+        AXApplyOverlayLeafAlpha(view);
     }
     for (UIView *sub in view.subviews) AXApplyToSubviews(sub);
 }
@@ -314,7 +425,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
     r.textAlignment = NSTextAlignmentRight;
     r.textColor = UIColor.whiteColor;
     r.font = [UIFont systemFontOfSize:14];
-    r.text = value >= 2.0 ? [NSString stringWithFormat:@"%.2fx", value] : [NSString stringWithFormat:@"%.0f%%", value * 100.0];
+    r.text = [NSString stringWithFormat:@"%.0f%%", value * 100.0];
     [axPanel addSubview:r];
     return r;
 }
@@ -339,17 +450,17 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 - (void)closeSettings { [axPanel removeFromSuperview]; axPanel = nil; AXRefreshButton(); }
 
 - (void)resetSettings {
-    AXSet(kAXTopAlpha, @0.65); AXSet(kAXRightAlpha, @0.80); AXSet(kAXScale, @0.81);
-    AXSet(kAXIconAlpha, @0.34); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES);
+    AXSet(kAXGlobalAlpha, @1.00); AXSet(kAXTopAlpha, @0.65); AXSet(kAXRightAlpha, @0.80); AXSet(kAXScale, @0.81);
+    AXSet(kAXIconAlpha, @0.34); AXSet(kAXNicknameScale, @1.00); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES);
     [self closeSettings];
     AXRefreshAllStacks();
 }
 
 - (void)sliderChanged:(UISlider *)sender {
-    NSString *key = @[@"", kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha][sender.tag];
+    NSString *key = @[@"", kAXGlobalAlpha, kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha, kAXNicknameScale][sender.tag];
     AXSet(key, @(sender.value));
     UILabel *label = [axPanel viewWithTag:8000 + sender.tag];
-    label.text = (sender.tag == 3) ? [NSString stringWithFormat:@"%.2fx", sender.value] : [NSString stringWithFormat:@"%.0f%%", sender.value * 100.0];
+    label.text = [NSString stringWithFormat:@"%.0f%%", sender.value * 100.0];
     AXRefreshButton();
     AXRefreshAllStacks();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
@@ -357,7 +468,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
 
 - (void)switchChanged:(UISwitch *)sender {
-    AXSet(sender.tag == 5 ? kAXHideSearch : kAXShowButton, @(sender.on));
+    AXSet(sender.tag == 11 ? kAXHideSearch : kAXShowButton, @(sender.on));
     AXRefreshButton();
     AXRefreshAllStacks();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
@@ -371,7 +482,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         CGRect b = UIScreen.mainScreen.bounds;
         CGFloat width = MIN(460.0, b.size.width - 90.0);
-        CGFloat height = 500.0;
+        CGFloat height = MIN(620.0, b.size.height - 90.0);
         axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
         axPanel.backgroundColor = [[UIColor colorWithWhite:0.08 alpha:1.0] colorWithAlphaComponent:0.86];
         axPanel.layer.cornerRadius = 20;
@@ -383,7 +494,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V19";
+        title.text = @"AwemeX 设置 V20";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -397,17 +508,18 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [close addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
         [axPanel addSubview:close];
 
-        NSArray *names = @[@"顶部不透明度", @"右侧按钮不透明度", @"右侧按钮缩放比例", @"AX 图标不透明度"];
-        NSArray *keys = @[kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha];
-        NSArray *defs = @[@0.65, @0.80, @0.81, @0.34];
-        for (NSInteger i = 0; i < 4; i++) {
-            CGFloat y = 68 + i * 74;
+        NSArray *names = @[@"设置全局透明", @"顶部不透明度", @"右侧按钮不透明度", @"右侧按钮缩放比例", @"AX 图标不透明度", @"昵称文案缩放"];
+        NSArray *keys = @[kAXGlobalAlpha, kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha, kAXNicknameScale];
+        NSArray *defs = @[@1.00, @0.65, @0.80, @0.81, @0.34, @1.00];
+        for (NSInteger i = 0; i < 6; i++) {
+            CGFloat y = 62 + i * 61;
             UILabel *val = AXLabel(names[i], AXFloat(keys[i], [defs[i] floatValue]), CGRectMake(30, y, 230, 24), width);
             val.tag = 8000 + i + 1;
             UISlider *s = [[UISlider alloc] initWithFrame:CGRectMake(30, y + 32, width - 60, 30)];
             s.tag = i + 1;
-            s.minimumValue = (i == 2) ? 0.50 : 0.05;
-            s.maximumValue = (i == 2) ? 1.30 : 1.00;
+            BOOL isScaleSlider = (i == 3 || i == 5);
+            s.minimumValue = isScaleSlider ? 0.50 : 0.05;
+            s.maximumValue = isScaleSlider ? 1.30 : 1.00;
             s.value = AXFloat(keys[i], [defs[i] floatValue]);
             [s addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
             [axPanel addSubview:s];
@@ -415,33 +527,33 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮"];
         for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 344 + i * 40;
+            CGFloat y = 452 + i * 42;
             UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 230, 30)];
             l.text = switchNames[i];
             l.textColor = UIColor.whiteColor;
             l.font = [UIFont boldSystemFontOfSize:15];
             [axPanel addSubview:l];
             UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(width - 85, y, 60, 32)];
-            sw.tag = i == 0 ? 5 : 6;
+            sw.tag = i == 0 ? 11 : 12;
             sw.on = AXBool(i == 0 ? kAXHideSearch : kAXShowButton, YES);
             [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
             [axPanel addSubview:sw];
         }
 
-        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V19：加入 setTransform 守护，防止右侧缩放被系统布局覆盖。";
+        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 532, width - 60, 26)];
+        note.text = @"V20：新增全局透明和昵称文案缩放；开关区重新排版。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
         [axPanel addSubview:note];
 
         UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-        reset.frame = CGRectMake(50, 448, width - 100, 34);
+        reset.frame = CGRectMake(50, 570, width - 100, 36);
         reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
         reset.layer.cornerRadius = 9;
-        [reset setTitle:@"恢复默认" forState:UIControlStateNormal];
+        [reset setTitle:@"搞定收工" forState:UIControlStateNormal];
         [reset setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        [reset addTarget:self action:@selector(resetSettings) forControlEvents:UIControlEventTouchUpInside];
+        [reset addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
         [axPanel addSubview:reset];
 
         AXResetTransformRecursive(axPanel);
@@ -485,6 +597,11 @@ static void AXShow(void) {
         %orig(target);
         return;
     }
+    if (!axApplyingElementEffects && AXIsLeftStack((UIView *)self)) {
+        CGAffineTransform target = AXLeftStackTargetTransform((UIView *)self);
+        %orig(target);
+        return;
+    }
     %orig(transform);
 }
 %end
@@ -496,6 +613,11 @@ static void AXShow(void) {
 - (void)setTransform:(CGAffineTransform)transform {
     if (!axApplyingElementEffects && AXIsRightStack((UIView *)self)) {
         CGAffineTransform target = AXRightStackTargetTransform((UIView *)self);
+        %orig(target);
+        return;
+    }
+    if (!axApplyingElementEffects && AXIsLeftStack((UIView *)self)) {
+        CGAffineTransform target = AXLeftStackTargetTransform((UIView *)self);
         %orig(target);
         return;
     }
@@ -516,14 +638,21 @@ static void AXShow(void) {
 %hook UILabel
 - (void)layoutSubviews {
     %orig;
-    if (AXIsTopAreaView((UIView *)self)) self.alpha = AXFloat(kAXTopAlpha, 0.65);
+    AXApplyOverlayLeafAlpha((UIView *)self);
 }
 %end
 
 %hook UIButton
 - (void)layoutSubviews {
     %orig;
-    if ((UIView *)self != axButton && AXIsTopAreaView((UIView *)self)) self.alpha = AXFloat(kAXTopAlpha, 0.65);
+    if ((UIView *)self != axButton) AXApplyOverlayLeafAlpha((UIView *)self);
+}
+%end
+
+%hook UIImageView
+- (void)layoutSubviews {
+    %orig;
+    AXApplyOverlayLeafAlpha((UIView *)self);
 }
 %end
 

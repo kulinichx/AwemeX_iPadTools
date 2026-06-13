@@ -1,9 +1,9 @@
-Package: com.awemex.v7.anchorsearch
-Name: AwemeX V7 Anchor Search
+Package: com.awemex.v9.rightcontainerscale
+Name: AwemeX V9 RightContainerScale
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: Right-button scaling anchored to bottom-right and fixed top-right search hiding
-Version: 7.0
+Description: V9 container-level right side button scaling, safer opacity/search controls
+Version: 9.0
 Maintainer: test
 Author: test
 Section: Tweaks

@@ -58,6 +58,22 @@ static BOOL AXIsAwemeXPanelView(UIView *v) {
     return AXIsDescendantOf(v, axPanel) || AXIsDescendantOf(v, axButton);
 }
 
+
+static BOOL AXIsTopAreaView(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
+    UIWindow *w = AXKeyWindow();
+    if (!w) return NO;
+    CGRect f = [v.superview convertRect:v.frame toView:w];
+    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
+    // 顶部频道/推荐一栏：只处理顶部小控件，排除搜索框/状态栏/根容器。
+    if (f.origin.y < screenH * 0.02 || f.origin.y > screenH * 0.18) return NO;
+    if (f.size.width > screenW * 0.65 || f.size.height > 90.0) return NO;
+    if (f.origin.x > screenW * 0.72) return NO;
+    return YES;
+}
+
 static BOOL AXIsRightArea(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v)) return NO;
     UIWindow *w = AXKeyWindow();
@@ -124,25 +140,45 @@ static BOOL AXIsRightStack(UIView *v) {
     return [label isEqualToString:@"right"] || hasAvatar || hasUserAvatarElement;
 }
 
-static void AXApplyScale(UIView *v) {
-    if (!AXIsRightStack(v)) return;
-    CGFloat scale = AXFloat(kAXScale, 0.81);
-    CGFloat alpha = AXFloat(kAXRightAlpha, 0.80);
-
-    v.transform = CGAffineTransformIdentity;
-    if (scale > 0 && fabs(scale - 1.0) > 0.001) {
-        NSArray *subviews = [v.subviews copy];
-        CGFloat ty = 0;
-        for (UIView *view in subviews) {
-            CGFloat viewHeight = view.frame.size.height;
-            ty += (viewHeight - viewHeight * scale) / 2;
-        }
-        CGFloat frameWidth = v.frame.size.width;
-        CGFloat rightTX = (frameWidth - frameWidth * scale) / 2;
-        v.transform = CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
-    }
-    v.alpha = alpha;
+static BOOL AXIsTopStack(UIView *v) {
+    if (![v isKindOfClass:NSClassFromString(@"AWEElementStackView")]) return NO;
+    if (AXIsAwemeXPanelView(v)) return NO;
+    NSString *label = v.accessibilityLabel ?: @"";
+    if ([label isEqualToString:@"top"] || [label isEqualToString:@"center"]) return YES;
+    return AXIsTopAreaView(v);
 }
+
+static void AXApplyElementEffects(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v)) return;
+
+    if (AXIsRightStack(v)) {
+        CGFloat scale = AXFloat(kAXScale, 0.81);
+        CGFloat alpha = AXFloat(kAXRightAlpha, 0.80);
+
+        // DYYY iPad 同款：直接作用在 AWEElementStackView 本体，右对齐 + 垂直补偿。
+        v.transform = CGAffineTransformIdentity;
+        if (scale > 0 && fabs(scale - 1.0) > 0.001) {
+            NSArray *subviews = [v.subviews copy];
+            CGFloat ty = 0;
+            for (UIView *view in subviews) {
+                CGFloat viewHeight = view.frame.size.height;
+                ty += (viewHeight - viewHeight * scale) / 2;
+            }
+            CGFloat frameWidth = v.frame.size.width;
+            CGFloat rightTX = (frameWidth - frameWidth * scale) / 2;
+            CGAffineTransform t = CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
+            if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
+        }
+        v.alpha = alpha;
+        return;
+    }
+
+    if (AXIsTopStack(v)) {
+        v.alpha = AXFloat(kAXTopAlpha, 0.65);
+    }
+}
+
+static void AXApplyScale(UIView *v) { AXApplyElementEffects(v); }
 
 static void AXRefreshButton(void) {
     if (!axButton) return;
@@ -155,9 +191,78 @@ static void AXRefreshButton(void) {
     if (w && axButton.superview == w) [w bringSubviewToFront:axButton];
 }
 
+
+static BOOL AXContainsClassNameSubstring(UIView *view, NSString *needle) {
+    if (!view || needle.length == 0) return NO;
+    NSString *cls = NSStringFromClass(view.class);
+    if ([cls rangeOfString:needle options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    for (UIView *sub in view.subviews) {
+        if (AXContainsClassNameSubstring(sub, needle)) return YES;
+    }
+    return NO;
+}
+
+static BOOL AXContainsTextInput(UIView *view) {
+    if (!view) return NO;
+    if ([view isKindOfClass:UITextField.class] || [view isKindOfClass:UITextView.class]) return YES;
+    for (UIView *sub in view.subviews) {
+        if (AXContainsTextInput(sub)) return YES;
+    }
+    return NO;
+}
+
+static BOOL AXIsTopRightSearchView(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
+    UIWindow *w = AXKeyWindow();
+    if (!w) return NO;
+    CGRect f = [v.superview convertRect:v.frame toView:w];
+    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    if (CGRectIsEmpty(f) || f.size.width <= 60 || f.size.height <= 15) return NO;
+    if (f.origin.x < screenW * 0.62) return NO;
+    if (f.origin.y < screenH * 0.015 || f.origin.y > screenH * 0.16) return NO;
+    if (f.size.width > screenW * 0.38 || f.size.height > 72.0) return NO;
+
+    NSString *cls = NSStringFromClass(v.class);
+    BOOL looksSearch = ([cls rangeOfString:@"Search" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                        [cls rangeOfString:@"search" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                        AXContainsClassNameSubstring(v, @"Search") ||
+                        AXContainsTextInput(v));
+    if (!looksSearch) return NO;
+
+    // 不要隐藏状态栏图标/普通右侧按钮；搜索框通常是横向宽条。
+    return f.size.width > f.size.height * 2.2;
+}
+
+static void AXApplySearchHide(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v)) return;
+    if (!AXIsTopRightSearchView(v)) return;
+    BOOL shouldHide = AXBool(kAXHideSearch, YES);
+    objc_setAssociatedObject(v, @selector(AXApplySearchHide), @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    v.hidden = shouldHide;
+    v.alpha = shouldHide ? 0.0 : 1.0;
+    v.userInteractionEnabled = !shouldHide;
+}
+
+static void AXRestoreSearchIfNeeded(UIView *v) {
+    if (!v) return;
+    NSNumber *marked = objc_getAssociatedObject(v, @selector(AXApplySearchHide));
+    if (marked.boolValue && !AXBool(kAXHideSearch, YES)) {
+        v.hidden = NO;
+        v.alpha = 1.0;
+        v.userInteractionEnabled = YES;
+    }
+}
+
 static void AXApplyToSubviews(UIView *view) {
     if (!view) return;
-    if ([view isKindOfClass:NSClassFromString(@"AWEElementStackView")]) AXApplyScale(view);
+    AXRestoreSearchIfNeeded(view);
+    AXApplySearchHide(view);
+    if ([view isKindOfClass:NSClassFromString(@"AWEElementStackView")]) {
+        AXApplyElementEffects(view);
+    } else if (([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIButton.class] || [view isKindOfClass:UIImageView.class]) && AXIsTopAreaView(view)) {
+        view.alpha = AXFloat(kAXTopAlpha, 0.65);
+    }
     for (UIView *sub in view.subviews) AXApplyToSubviews(sub);
 }
 
@@ -221,12 +326,15 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
     label.text = (sender.tag == 3) ? [NSString stringWithFormat:@"%.2fx", sender.value] : [NSString stringWithFormat:@"%.0f%%", sender.value * 100.0];
     AXRefreshButton();
     AXRefreshAllStacks();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
 }
+
 
 - (void)switchChanged:(UISwitch *)sender {
     AXSet(sender.tag == 5 ? kAXHideSearch : kAXShowButton, @(sender.on));
     AXRefreshButton();
     AXRefreshAllStacks();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
 }
 
 - (void)openSettings {
@@ -249,7 +357,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V10";
+        title.text = @"AwemeX 设置 V12";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -281,7 +389,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮"];
         for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 372 + i * 43;
+            CGFloat y = 356 + i * 42;
             UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 230, 30)];
             l.text = switchNames[i];
             l.textColor = UIColor.whiteColor;
@@ -294,15 +402,15 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
             [axPanel addSubview:sw];
         }
 
-        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 452, width - 60, 30)];
-        note.text = @"V10：右侧缩放逻辑改为 DYYY iPad 同款；面板尺寸已缩小。";
+        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 432, width - 60, 28)];
+        note.text = @"V12：修复右上搜索隐藏；恢复默认按钮上移，保留底部间距。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
         [axPanel addSubview:note];
 
         UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-        reset.frame = CGRectMake(50, 482, width - 100, 36);
+        reset.frame = CGRectMake(50, 466, width - 100, 36);
         reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
         reset.layer.cornerRadius = 9;
         [reset setTitle:@"恢复默认" forState:UIControlStateNormal];
@@ -341,8 +449,47 @@ static void AXShow(void) {
 }
 
 %hook AWEElementStackView
-- (void)layoutSubviews { %orig; AXApplyScale((UIView *)self); }
-- (NSArray<__kindof UIView *> *)arrangedSubviews { NSArray *r = %orig; AXApplyScale((UIView *)self); return r; }
+- (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
+- (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
+- (void)setFrame:(CGRect)frame { %orig(frame); AXApplyElementEffects((UIView *)self); }
+- (void)setBounds:(CGRect)bounds { %orig(bounds); AXApplyElementEffects((UIView *)self); }
+- (void)setAlpha:(CGFloat)alpha {
+    %orig(alpha);
+    AXApplyElementEffects((UIView *)self);
+}
+%end
+
+
+%hook UIView
+- (void)layoutSubviews {
+    %orig;
+    AXRestoreSearchIfNeeded((UIView *)self);
+    AXApplySearchHide((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXRestoreSearchIfNeeded((UIView *)self);
+    AXApplySearchHide((UIView *)self);
+}
+- (void)setFrame:(CGRect)frame {
+    %orig(frame);
+    AXRestoreSearchIfNeeded((UIView *)self);
+    AXApplySearchHide((UIView *)self);
+}
+%end
+
+%hook UILabel
+- (void)layoutSubviews {
+    %orig;
+    if (AXIsTopAreaView((UIView *)self)) self.alpha = AXFloat(kAXTopAlpha, 0.65);
+}
+%end
+
+%hook UIButton
+- (void)layoutSubviews {
+    %orig;
+    if ((UIView *)self != axButton && AXIsTopAreaView((UIView *)self)) self.alpha = AXFloat(kAXTopAlpha, 0.65);
+}
 %end
 
 %hook UIApplication

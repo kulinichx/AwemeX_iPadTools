@@ -117,14 +117,53 @@ static BOOL AxLooksLikeAvatar(UIView *v) {
     return AxChainContains(v, @[@"Avatar", @"avatar", @"UserHead", @"HeadImage", @"Profile", @"头像"]);
 }
 
+static BOOL AxIsProbablyFeedPlaybackWindow(UIView *v) {
+    UIWindow *window = v.window ?: UIApplication.sharedApplication.keyWindow;
+    if (!window) return NO;
+
+    __block BOOL hasBottomTab = NO;
+    __block BOOL hasVideoLike = NO;
+    void (^walk)(UIView *, NSInteger) = ^(UIView *node, NSInteger depth) {
+        if (!node || depth > 7 || hasVideoLike) return;
+        NSString *s = AxInfo(node);
+        CGRect r = [node.superview convertRect:node.frame toView:nil];
+
+        if ([s containsString:@"UITabBar"] || [s containsString:@"TabBar"] || [s containsString:@"BottomTab"]) hasBottomTab = YES;
+        if ([s containsString:@"Player"] || [s containsString:@"Feed"] || [s containsString:@"Aweme"] || [s containsString:@"Video"]) {
+            if (r.size.width > 180 && r.size.height > 240) hasVideoLike = YES;
+        }
+
+        for (UIView *sub in node.subviews) walk(sub, depth + 1);
+    };
+    walk(window, 0);
+
+    return hasVideoLike || hasBottomTab;
+}
+
 static BOOL AxLooksLikeRightBarContainer(UIView *v) {
+    if (!v.superview || !v.window) return NO;
+    if (!AxIsProbablyFeedPlaybackWindow(v)) return NO;
+
     NSString *s = AxInfo(v);
     CGRect f = [v.superview convertRect:v.frame toView:nil];
     CGSize screen = UIScreen.mainScreen.bounds.size;
-    BOOL rightPosition = f.origin.x > screen.width * 0.58 && f.size.height > 120 && f.size.width < 170;
-    BOOL nameHit = [s containsString:@"Right"] || [s containsString:@"right"] || [s containsString:@"Side"] || [s containsString:@"Action"] || [s containsString:@"Interaction"];
+
+    BOOL rightPosition = f.origin.x > screen.width * 0.70;
+    BOOL rightSize = f.size.width >= 34 && f.size.width <= 150 && f.size.height >= 180 && f.size.height <= screen.height * 0.78;
+    BOOL notFullPage = f.size.width < screen.width * 0.25 && f.size.height < screen.height * 0.85;
     BOOL enoughSubviews = v.subviews.count >= 3;
-    return (nameHit && enoughSubviews) || (rightPosition && enoughSubviews);
+
+    BOOL nameHit = [s containsString:@"Right"] ||
+                   [s containsString:@"right"] ||
+                   [s containsString:@"Side"] ||
+                   [s containsString:@"Action"] ||
+                   [s containsString:@"Interaction"] ||
+                   [s containsString:@"Digg"] ||
+                   [s containsString:@"Comment"] ||
+                   [s containsString:@"Share"];
+
+    // 只缩放播放页右侧竖排操作面板。普通设置页/我的/消息的右侧容器不符合这些尺寸与位置条件。
+    return rightPosition && rightSize && notFullPage && enoughSubviews && nameHit;
 }
 
 static BOOL AxLooksLikeRightAction(UIView *v) {
@@ -345,7 +384,7 @@ static void AwemeXOneFingerLongPress(UIGestureRecognizer *gesture) {
 }
 
 static void AwemeXInstallOneFingerLongPress(UIWindow *window) {
-    if (!AwemeXIsIpad() || !window || objc_getAssociatedObject(window, kAwemeXOneFingerLongPressKey)) return;
+    if (!AwemeXIsIpad() || !window || !gNewLongPressPanel || objc_getAssociatedObject(window, kAwemeXOneFingerLongPressKey)) return;
     UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:[UIApplication sharedApplication] action:@selector(awemex_oneFingerLongPress:)];
     lp.minimumPressDuration = 0.55;
     lp.numberOfTouchesRequired = 1;

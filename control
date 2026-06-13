@@ -1,9 +1,9 @@
 Package: com.awemex.ipadtools
 Name: AwemeX iPad Tools
-Depends: mobilesubstrate
+Depends: mobilesubstrate, preferenceloader
 Architecture: iphoneos-arm64
-Description: Independent iPad foreground layer tools for Aweme. DYYY-style panel options, frosted settings, right action scaling, gesture entry.
-Version: 1.4.0
+Description: iPad foreground layer tools for Aweme. Feed-only right action scaling, expandable settings panel, Preferences bundle.
+Version: 1.5.0
 Maintainer: kulinichx
 Author: kulinichx
 Section: Tweaks

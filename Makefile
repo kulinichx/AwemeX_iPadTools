@@ -1,7 +1,7 @@
 TARGET = iphone:clang:latest:14.0
 ARCHS = arm64
 
-INSTALL_TARGET_PROCESSES = Aweme AwemeLite AwemeHD AwemePad AwemeIpad AwemeTablet
+INSTALL_TARGET_PROCESSES = Aweme AwemeLite AwemeHD AwemePad AwemeIpad AwemeTablet Preferences
 
 ifeq ($(SCHEME),rootless)
     export THEOS_PACKAGE_SCHEME = rootless
@@ -23,7 +23,18 @@ AwemeX_AlphaPro_FRAMEWORKS = UIKit Foundation QuartzCore
 AwemeX_AlphaPro_CFLAGS = -fobjc-arc -w
 AwemeX_AlphaPro_LOGOS_DEFAULT_GENERATOR = internal
 
+BUNDLE_NAME = AwemeXPrefs
+AwemeXPrefs_FILES = Preferences/AwemeXPrefs.m
+AwemeXPrefs_INSTALL_PATH = /Library/PreferenceBundles
+AwemeXPrefs_FRAMEWORKS = UIKit
+AwemeXPrefs_PRIVATE_FRAMEWORKS = Preferences
+AwemeXPrefs_CFLAGS = -fobjc-arc -w
+
 include $(THEOS_MAKE_PATH)/tweak.mk
+include $(THEOS_MAKE_PATH)/bundle.mk
+
+after-install::
+	install.exec "killall -9 Aweme Preferences || true"
 
 clean::
 	@rm -rf .theos packages

@@ -2,6 +2,15 @@
 #import "AwemeXSettingsHelper.h"
 #import "AwemeXCustomInputView.h"
 
+@interface AwemeXSectionHeader : UIControl
+@property(nonatomic, strong) UILabel *label;
+@property(nonatomic, strong) UILabel *arrow;
+@property(nonatomic, strong) UIStackView *body;
+@end
+
+@implementation AwemeXSectionHeader
+@end
+
 @interface AwemeXSettingsViewController : UIViewController
 @end
 
@@ -11,6 +20,8 @@
     UIStackView *_stack;
     NSMutableArray<AwemeXCustomInputView *> *_rows;
     NSMutableDictionary<NSString *, UISwitch *> *_switches;
+    NSMutableArray<AwemeXSectionHeader *> *_sections;
+    UIStackView *_currentBody;
 }
 
 - (void)viewDidLoad {
@@ -19,6 +30,7 @@
     self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.18];
     _rows = [NSMutableArray array];
     _switches = [NSMutableDictionary dictionary];
+    _sections = [NSMutableArray array];
 
     UIBlurEffect *effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark];
     _blurCard = [[UIVisualEffectView alloc] initWithEffect:effect];
@@ -63,11 +75,11 @@
 
     _stack = [[UIStackView alloc] initWithFrame:CGRectZero];
     _stack.axis = UILayoutConstraintAxisVertical;
-    _stack.spacing = 6;
+    _stack.spacing = 8;
     _stack.translatesAutoresizingMaskIntoConstraints = NO;
     [_scroll addSubview:_stack];
 
-    [self addHeader:@"界面透明"];
+    [self addSection:@"界面透明" expanded:YES];
     [self addInput:@"顶部透明度" subtitle:@"精选/关注/推荐" key:@"awemex_topAlpha" min:0 max:1 def:1];
     [self addInput:@"右侧数值透明度" subtitle:@"点赞/评论/分享数字" key:@"awemex_rightAlpha" min:0 max:1 def:1];
     [self addInput:@"点赞爱心等透明度" subtitle:@"右侧操作图标" key:@"awemex_likeAlpha" min:0 max:1 def:1];
@@ -75,17 +87,17 @@
     [self addInput:@"底部文字透明度" subtitle:@"标题、文案、发布时间、IP" key:@"awemex_bottomTextAlpha" min:0 max:1 def:1];
     [self addInput:@"音乐圆角图标透明度" subtitle:@"底部音乐/圆角图标" key:@"awemex_musicAlpha" min:0 max:1 def:1];
 
-    [self addHeader:@"布局"];
-    [self addInput:@"右侧栏缩放度" subtitle:@"缩放整组头像/点赞/评论/分享" key:@"awemex_rightScale" min:0.50 max:1.50 def:1];
+    [self addSection:@"播放面板布局" expanded:YES];
+    [self addInput:@"右侧播放面板缩放" subtitle:@"只缩放播放页右侧头像/点赞/评论/分享，不影响设置/我的/消息等界面" key:@"awemex_rightScale" min:0.50 max:1.50 def:1];
 
-    [self addHeader:@"面板设置"];
+    [self addSection:@"面板设置" expanded:NO];
     [self addSwitch:@"启用新版长按面板" key:@"awemex_newLongPressPanel" defaultOn:YES];
     [self addSwitch:@"长按面板玻璃效果" key:@"awemex_longPressPanelGlass" defaultOn:NO];
     [self addSwitch:@"长按面板深色模式" key:@"awemex_longPressPanelDarkMode" defaultOn:NO];
     [self addSwitch:@"保存面板玻璃效果" key:@"awemex_savePanelGlass" defaultOn:NO];
     [self addInput:@"面板毛玻璃透明度" subtitle:@"0-1 小数" key:@"awemex_panelGlassAlpha" min:0 max:1 def:0.65];
 
-    [self addHeader:@"长按面板功能"];
+    [self addSection:@"长按面板功能" expanded:NO];
     [self addSwitch:@"长按面板保存视频" key:@"awemex_longPressSaveVideo" defaultOn:YES];
     [self addSwitch:@"长按面板保存封面" key:@"awemex_longPressSaveCover" defaultOn:YES];
     [self addSwitch:@"长按面板保存音频" key:@"awemex_longPressSaveAudio" defaultOn:YES];
@@ -94,14 +106,14 @@
     [self addSwitch:@"长按面板生成视频" key:@"awemex_longPressGenerateVideo" defaultOn:NO];
     [self addSwitch:@"长按面板复制文案" key:@"awemex_longPressCopyText" defaultOn:NO];
 
-    [self addHeader:@"入口"];
+    [self addSection:@"入口" expanded:YES];
     [self addSwitch:@"隐藏右上搜索" key:@"awemex_hideTopSearch" defaultOn:NO];
     [self addSwitch:@"显示 AX 悬浮按钮" key:@"awemex_floatingButton" defaultOn:YES];
 
     [NSLayoutConstraint activateConstraints:@[
         [_blurCard.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
         [_blurCard.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [_blurCard.widthAnchor constraintEqualToConstant:460],
+        [_blurCard.widthAnchor constraintEqualToConstant:470],
         [_blurCard.heightAnchor constraintLessThanOrEqualToAnchor:self.view.heightAnchor multiplier:0.86],
 
         [title.topAnchor constraintEqualToAnchor:content.topAnchor constant:18],
@@ -135,16 +147,59 @@
 
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 
-- (void)addHeader:(NSString *)text {
+- (void)addSection:(NSString *)text expanded:(BOOL)expanded {
+    AwemeXSectionHeader *header = [[AwemeXSectionHeader alloc] initWithFrame:CGRectZero];
+    header.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.25];
+    header.layer.cornerRadius = 10;
+    header.layer.masksToBounds = YES;
+
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
     label.text = [NSString stringWithFormat:@"  %@", text];
     label.textColor = UIColor.whiteColor;
     label.font = [UIFont boldSystemFontOfSize:15];
-    label.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.25];
-    label.layer.cornerRadius = 9;
-    label.layer.masksToBounds = YES;
-    [_stack addArrangedSubview:label];
-    [label.heightAnchor constraintEqualToConstant:34].active = YES;
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [header addSubview:label];
+
+    UILabel *arrow = [[UILabel alloc] initWithFrame:CGRectZero];
+    arrow.text = expanded ? @"⌃" : @"⌄";
+    arrow.textColor = [UIColor colorWithWhite:1 alpha:0.75];
+    arrow.font = [UIFont systemFontOfSize:20 weight:UIFontWeightMedium];
+    arrow.textAlignment = NSTextAlignmentCenter;
+    arrow.translatesAutoresizingMaskIntoConstraints = NO;
+    [header addSubview:arrow];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:6],
+        [label.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+        [arrow.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-12],
+        [arrow.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+        [arrow.widthAnchor constraintEqualToConstant:34],
+    ]];
+
+    UIStackView *body = [[UIStackView alloc] initWithFrame:CGRectZero];
+    body.axis = UILayoutConstraintAxisVertical;
+    body.spacing = 6;
+    body.hidden = !expanded;
+
+    header.label = label;
+    header.arrow = arrow;
+    header.body = body;
+    [header addTarget:self action:@selector(toggleSection:) forControlEvents:UIControlEventTouchUpInside];
+
+    [_stack addArrangedSubview:header];
+    [header.heightAnchor constraintEqualToConstant:38].active = YES;
+    [_stack addArrangedSubview:body];
+
+    _currentBody = body;
+    [_sections addObject:header];
+}
+
+- (void)toggleSection:(AwemeXSectionHeader *)header {
+    header.body.hidden = !header.body.hidden;
+    header.arrow.text = header.body.hidden ? @"⌄" : @"⌃";
+    [UIView animateWithDuration:0.20 animations:^{
+        [self.view layoutIfNeeded];
+    }];
 }
 
 - (void)addInput:(NSString *)title subtitle:(NSString *)subtitle key:(NSString *)key min:(CGFloat)min max:(CGFloat)max def:(CGFloat)def {
@@ -152,7 +207,7 @@
     row.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.10];
     row.layer.cornerRadius = 10;
     row.layer.masksToBounds = YES;
-    [_stack addArrangedSubview:row];
+    [_currentBody addArrangedSubview:row];
     [row.heightAnchor constraintEqualToConstant:76].active = YES;
     [_rows addObject:row];
 }
@@ -187,7 +242,7 @@
         [sw.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
     ]];
 
-    [_stack addArrangedSubview:row];
+    [_currentBody addArrangedSubview:row];
     [row.heightAnchor constraintEqualToConstant:52].active = YES;
 }
 

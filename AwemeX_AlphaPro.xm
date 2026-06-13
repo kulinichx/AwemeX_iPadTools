@@ -589,7 +589,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, height - 98, width - 60, 22)];
-        note.text = @"V33：文案/搜索透明度已合并到主面板。";
+        note.text = @"V34：修复 V33 未使用函数导致的编译失败。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.50];
         note.font = [UIFont systemFontOfSize:11];
         note.numberOfLines = 1;
@@ -676,7 +676,6 @@ static void AXShow(void) {
 
 
 static char kAXOFBaseAlphaKey;
-static char kAXOFSettingsAddedKey;
 static char kAXOFRelatedContainerKey;
 static char kAXOFTargetKindKey; // 1 = nickname/desc, 2 = related search
 static BOOL axofApplyingAlpha = NO;
@@ -1041,7 +1040,7 @@ static void AXOF_RefreshAll(void) {
         }
 
         UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(28, height - 78, width - 56, 58)];
-        tip.text = @"V33：主面板内联透明度；图标/合集同排补套。";
+        tip.text = @"V34：主面板内联透明度；修复编译告警。";
         tip.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.62];
         tip.font = [UIFont systemFontOfSize:11];
         tip.numberOfLines = 2;
@@ -1050,56 +1049,7 @@ static void AXOF_RefreshAll(void) {
 }
 @end
 
-static UIView *AXOF_FindAwemeXSettingsPanel(void) {
-    UIWindow *w = AXOF_KeyWindow();
-    if (!w) return nil;
-    for (UIView *v in [w.subviews reverseObjectEnumerator]) {
-        for (UIView *sub in v.subviews) {
-            if ([sub isKindOfClass:UILabel.class]) {
-                NSString *t = ((UILabel *)sub).text ?: @"";
-                if ([t containsString:@"AwemeX 设置"]) return v;
-            }
-        }
-    }
-    return nil;
-}
-
-static void AXOF_AddSettingsEntryButton(void) {
-    UIView *panel = AXOF_FindAwemeXSettingsPanel();
-    if (!panel) return;
-    NSNumber *added = objc_getAssociatedObject(panel, &kAXOFSettingsAddedKey);
-    if (added.boolValue) return;
-
-    // 避免“文案/相关搜索透明度”按钮和底部说明文字重叠：隐藏旧说明，把按钮固定放在“搞定收工”上方。
-    for (UIView *sub in panel.subviews) {
-        if ([sub isKindOfClass:UILabel.class]) {
-            NSString *t = ((UILabel *)sub).text ?: @"";
-            if ([t containsString:@"V33"] || [t containsString:@"V33"] || [t containsString:@"DYYY"] || [t containsString:@"文案/相关搜索"]) {
-                sub.hidden = YES;
-            }
-        }
-    }
-
-    CGFloat width = panel.bounds.size.width;
-    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-    CGFloat y = MAX(52.0, panel.bounds.size.height - 96.0);
-    // 如果底部有“搞定收工”按钮，把入口放到它上面一点。
-    for (UIView *sub in panel.subviews) {
-        if ([sub isKindOfClass:UIButton.class]) {
-            NSString *t = [(UIButton *)sub titleForState:UIControlStateNormal] ?: @"";
-            if ([t containsString:@"搞定收工"]) y = MIN(y, sub.frame.origin.y - 42.0);
-        }
-    }
-    btn.frame = CGRectMake(30, y, width - 60, 34);
-    btn.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.16];
-    btn.layer.cornerRadius = 9;
-    [btn setTitle:@"文案/相关搜索透明度" forState:UIControlStateNormal];
-    [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    btn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-    [btn addTarget:[AXOFSettingsTarget shared] action:@selector(openOpacityPanel) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:btn];
-    objc_setAssociatedObject(panel, &kAXOFSettingsAddedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
+// V34：透明度滑块已并入主面板，移除旧的子面板入口按钮函数，避免 -Wunused-function 编译失败。
 
 // V33：文案/相关搜索透明度已合并到主设置面板，不再额外追加子面板入口。
 

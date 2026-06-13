@@ -1,9 +1,9 @@
-Package: com.awemex.alphapro.v10.4
-Name: AwemeX AlphaPro V10.4 SafeFinal
+Package: com.awemex.alphapro.v10.5
+Name: AwemeX AlphaPro V10.5 MenuFix
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: Safe non-conflicting Aweme tweak: DYYY-style right stack scale and right opacity controls
-Version: 10.4
+Description: Non-conflicting Aweme tweak with fixed AX menu creation
+Version: 10.5
 Maintainer: test
 Author: test
 Section: Tweaks

@@ -1,39 +1,5 @@
-# AwemeX AlphaPro V10.4 SafeFinal
+# AwemeX AlphaPro V10.5 MenuFix
 
-V10.4 重点修复命名冲突：不再生成 AwemeX.dylib / AwemeX.plist，避免覆盖你原来的抖音图层文件。
-
-## 新生成文件名
-
-```text
-AwemeXAlphaPro.dylib
-AwemeXAlphaPro.plist
-```
-
-## 关键修改
-
-```makefile
-TWEAK_NAME = AwemeXAlphaPro
-AwemeXAlphaPro_FILES = AwemeX_AlphaPro.xm
-```
-
-Filter 文件名也同步改为：
-
-```text
-AwemeXAlphaPro.plist
-```
-
-## 功能
-
-- 顶部推荐/关注透明度
-- 右侧按钮透明度
-- 右侧按钮缩放
-- 隐藏右上角搜索
-- 右侧覆盖：头像、点赞、评论、收藏、分享、音乐
-- 缩放使用 DYYY 风格 AWEElementStackView 识别方案
-
-## Build fixes
-
-- 添加 Filter plist
-- 删除未使用函数
-- 避免 deprecated keyWindow 直接调用
-- TARGET 使用 iOS 14.0，避免 arm64e/iOS 13 warning
+- 安全命名：生成 `AwemeXAlphaPro.dylib` 和 `AwemeXAlphaPro.plist`，不会覆盖原 `AwemeX.dylib`。
+- 修复 AX 菜单不出现：菜单按钮不再只依赖 `applicationDidBecomeActive`，新增 `%ctor` 延迟触发、`UIViewController viewDidAppear`、`UIView didMoveToWindow` 和 1 秒保活检测。
+- Filter：`com.ss.iphone.ugc.Aweme`。

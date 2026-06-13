@@ -125,6 +125,28 @@ static BOOL AXStackHasElementClassName(UIView *container, NSString *targetName) 
     return NO;
 }
 
+
+static BOOL AXIsLooseRightAreaStack(UIView *v) {
+    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
+    if ([v isKindOfClass:UIScrollView.class]) return NO;
+    UIWindow *w = v.window ?: AXKeyWindow();
+    if (!w) return NO;
+    CGRect f = [v.superview convertRect:v.frame toView:w];
+    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
+
+    // DYYY 的 iPad 版主要靠 AWEElementStackView 本体缩放。部分 iPad 版本
+    // 右侧栏拿不到 VC/label/avatar 特征，所以这里保留坐标兜底；但只允许
+    // “右侧窄高按钮栏”，排除顶部推荐栏和 Feed 滑动大容器。
+    if (f.origin.x < screenW * 0.55) return NO;
+    if (f.origin.y < screenH * 0.22) return NO;
+    if (f.size.width > MIN(screenW * 0.34, 260.0)) return NO;
+    if (f.size.height < 90.0 || f.size.height > screenH * 0.82) return NO;
+    if (v.subviews.count < 2) return NO;
+    return YES;
+}
+
 static BOOL AXIsSafeRightAreaStack(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
     if ([v isKindOfClass:UIScrollView.class]) return NO;
@@ -151,18 +173,21 @@ static BOOL AXIsRightStack(UIView *v) {
     BOOL hasAvatar = AXContainsSubviewOfClass(v, NSClassFromString(@"AWEPlayInteractionUserAvatarView"));
     BOOL hasUserAvatarElement = AXStackHasElementClassName(v, @"AWEPlayInteractionUserAvatarOptElementElement");
 
-    // V17：先认 DYYY 同款特征。V16 把 VC 判断放太前，iPad 上拿不到
-    // AWEPlayInteractionViewController 时会直接返回，导致缩放不生效。
+    // 先认 DYYY 同款特征。
     if ([label isEqualToString:@"right"] || hasAvatar || hasUserAvatarElement) {
         return YES;
     }
+
+    // iPad 上部分版本取不到 AWEPlayInteractionViewController，label 也可能为空。
+    // fixed13 能生效就是靠坐标兜底；这里恢复兜底，但不再恢复会卡上下滑的
+    // VC 页面级重刷 / setFrame / setBounds 钩子。
+    if (AXIsLooseRightAreaStack(v)) return YES;
 
     UIViewController *vc = AXFirstViewControllerFromView(v);
     NSString *vcName = vc ? NSStringFromClass(vc.class) : @"";
     BOOL inPlayVC = [vcName containsString:@"AWEPlayInteractionViewController"] ||
                     [vcName containsString:@"AWELiveNewPreStreamViewController"];
 
-    // 最后才使用更严格的坐标兜底，只匹配右侧窄按钮栏，不能匹配大容器/滑动层。
     return inPlayVC && AXIsSafeRightAreaStack(v);
 }
 
@@ -255,8 +280,17 @@ static void AXApplyToSubviews(UIView *view) {
 }
 
 static void AXRefreshAllStacks(void) {
-    UIWindow *w = AXKeyWindow();
-    AXApplyToSubviews(w);
+    UIApplication *app = UIApplication.sharedApplication;
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in app.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                AXApplyToSubviews(w);
+            }
+        }
+        return;
+    }
+    for (UIWindow *w in app.windows) AXApplyToSubviews(w);
 }
 
 static void AXResetTransformRecursive(UIView *view) {
@@ -345,7 +379,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V17";
+        title.text = @"AwemeX 设置 V18";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -391,7 +425,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V17：恢复右侧缩放识别；保留防误伤 Feed 滑动的窄栏限制。";
+        note.text = @"V18：按 DYYY 保留右侧窄栏坐标兜底；不恢复会卡滑动的强制重刷。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;

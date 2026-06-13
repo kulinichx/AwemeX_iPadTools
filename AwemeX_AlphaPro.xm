@@ -26,6 +26,9 @@ static NSString * const kAXGlobalAlpha = @"ax_global_alpha";
 static NSString * const kAXNicknameScale = @"ax_nickname_scale";
 static NSString * const kAXHideSearch = @"ax_hide_search";
 static NSString * const kAXShowButton = @"ax_show_button";
+static NSString * const kAXOFNicknameDescAlpha = @"ax_nickname_desc_alpha";
+static NSString * const kAXOFRelatedSearchAlpha = @"ax_related_search_alpha";
+static void AXOF_RefreshAll(void);
 
 static CGFloat AXFloat(NSString *key, CGFloat def) {
     id v = [[NSUserDefaults standardUserDefaults] objectForKey:key];
@@ -492,19 +495,22 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
 - (void)resetSettings {
     AXSet(kAXGlobalAlpha, @1.00); AXSet(kAXTopAlpha, @0.65); AXSet(kAXRightAlpha, @0.80); AXSet(kAXScale, @0.81);
-    AXSet(kAXIconAlpha, @0.34); AXSet(kAXNicknameScale, @1.00); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES);
+    AXSet(kAXIconAlpha, @0.34); AXSet(kAXNicknameScale, @1.00); AXSet(kAXOFNicknameDescAlpha, @1.00); AXSet(kAXOFRelatedSearchAlpha, @0.55); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES);
     [self closeSettings];
     AXRefreshAllStacks();
 }
 
 - (void)sliderChanged:(UISlider *)sender {
-    NSString *key = @[@"", kAXGlobalAlpha, kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha, kAXNicknameScale][sender.tag];
+    NSArray *keys = @[@"", kAXGlobalAlpha, kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha, kAXNicknameScale, kAXOFNicknameDescAlpha, kAXOFRelatedSearchAlpha];
+    if (sender.tag <= 0 || sender.tag >= keys.count) return;
+    NSString *key = keys[sender.tag];
     AXSet(key, @(sender.value));
     UILabel *label = [axPanel viewWithTag:8000 + sender.tag];
     label.text = [NSString stringWithFormat:@"%.0f%%", sender.value * 100.0];
     AXRefreshButton();
     AXRefreshAllStacks();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
+    if (sender.tag == 7 || sender.tag == 8) AXOF_RefreshAll();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); AXOF_RefreshAll(); });
 }
 
 
@@ -522,8 +528,8 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         if (axPanel) { [self closeSettings]; return; }
 
         CGRect b = UIScreen.mainScreen.bounds;
-        CGFloat width = MIN(460.0, b.size.width - 90.0);
-        CGFloat height = MIN(620.0, b.size.height - 90.0);
+        CGFloat width = MIN(390.0, b.size.width - 90.0);
+        CGFloat height = MIN(760.0, b.size.height - 50.0);
         axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
         axPanel.tag = 42029;
         axPanel.backgroundColor = [[UIColor colorWithWhite:0.08 alpha:1.0] colorWithAlphaComponent:0.86];
@@ -536,7 +542,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V30";
+        title.text = @"AwemeX 设置 V33";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -550,10 +556,10 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [close addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
         [axPanel addSubview:close];
 
-        NSArray *names = @[@"设置全局透明", @"顶部不透明度", @"右侧按钮不透明度", @"右侧按钮缩放比例", @"AX 图标不透明度", @"昵称文案缩放"];
-        NSArray *keys = @[kAXGlobalAlpha, kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha, kAXNicknameScale];
-        NSArray *defs = @[@1.00, @0.65, @0.80, @0.81, @0.34, @1.00];
-        for (NSInteger i = 0; i < 6; i++) {
+        NSArray *names = @[@"设置全局透明", @"顶部不透明度", @"右侧按钮不透明度", @"右侧按钮缩放比例", @"AX 图标不透明度", @"昵称文案缩放", @"昵称/文案不透明度", @"相关搜索不透明度"];
+        NSArray *keys = @[kAXGlobalAlpha, kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha, kAXNicknameScale, kAXOFNicknameDescAlpha, kAXOFRelatedSearchAlpha];
+        NSArray *defs = @[@1.00, @0.65, @0.80, @0.81, @0.34, @1.00, @1.00, @0.55];
+        for (NSInteger i = 0; i < 8; i++) {
             CGFloat y = 62 + i * 61;
             UILabel *val = AXLabel(names[i], AXFloat(keys[i], [defs[i] floatValue]), CGRectMake(30, y, 230, 24), width);
             val.tag = 8000 + i + 1;
@@ -569,7 +575,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮"];
         for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 452 + i * 42;
+            CGFloat y = 574 + i * 42;
             UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 230, 30)];
             l.text = switchNames[i];
             l.textColor = UIColor.whiteColor;
@@ -582,15 +588,15 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
             [axPanel addSubview:sw];
         }
 
-        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 532, width - 60, 26)];
-        note.text = @"V30：增强中间文案、搜索/合集图标透明度值守。";
-        note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
-        note.font = [UIFont systemFontOfSize:12];
-        note.numberOfLines = 2;
+        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, height - 98, width - 60, 22)];
+        note.text = @"V33：文案/搜索透明度已合并到主面板。";
+        note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.50];
+        note.font = [UIFont systemFontOfSize:11];
+        note.numberOfLines = 1;
         [axPanel addSubview:note];
 
         UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-        reset.frame = CGRectMake(50, 570, width - 100, 36);
+        reset.frame = CGRectMake(50, height - 62, width - 100, 36);
         reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
         reset.layer.cornerRadius = 9;
         [reset setTitle:@"搞定收工" forState:UIControlStateNormal];
@@ -669,8 +675,6 @@ static void AXShow(void) {
 // 默认值：昵称文案 100%，相关搜索 55%。
 
 
-static NSString * const kAXOFNicknameDescAlpha = @"ax_nickname_desc_alpha";
-static NSString * const kAXOFRelatedSearchAlpha = @"ax_related_search_alpha";
 static char kAXOFBaseAlphaKey;
 static char kAXOFSettingsAddedKey;
 static char kAXOFRelatedContainerKey;
@@ -717,24 +721,35 @@ static NSString *AXOF_ViewText(UIView *v) {
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         id t = [v performSelector:@selector(text)];
 #pragma clang diagnostic pop
-        if ([t isKindOfClass:NSString.class]) return t;
+        if ([t isKindOfClass:NSString.class] && ((NSString *)t).length > 0) return t;
     }
-    return @"";
+    NSString *acc = v.accessibilityLabel ?: @"";
+    return acc;
 }
 
 static BOOL AXOF_IsAwemeXOwnView(UIView *v) {
     if (!v) return NO;
-    // 先排除 AwemeX 自己的所有面板，避免“昵称/文案透明度”误伤设置页文字。
+    // 排除 AwemeX 自己的所有面板，避免“昵称/文案透明度”误伤设置页文字。
+    // V33 同时排除评论页/分享页/ActionSheet 等弹层，避免右侧评论、分享打开后内容被透明度逻辑误伤。
     UIView *cur = v;
     while (cur) {
         if (cur == axPanel || cur == axButton || cur == axofPanel) return YES;
         if (cur.tag == 42029 || cur.tag == 42030) return YES;
+        NSString *cn = NSStringFromClass(cur.class);
+        if ([cn containsString:@"Comment"] || [cn containsString:@"Share"] ||
+            [cn containsString:@"ActionSheet"] || [cn containsString:@"Input"] ||
+            [cn containsString:@"Keyboard"] || [cn containsString:@"Popup"] ||
+            [cn containsString:@"Alert"]) return YES;
         cur = cur.superview;
     }
     UIResponder *r = v;
     while (r) {
         NSString *name = NSStringFromClass(r.class);
         if ([name containsString:@"AXMenuTarget"] || [name containsString:@"AXOFSettingsTarget"]) return YES;
+        if ([name containsString:@"Comment"] || [name containsString:@"Share"] ||
+            [name containsString:@"ActionSheet"] || [name containsString:@"Input"] ||
+            [name containsString:@"Keyboard"] || [name containsString:@"Popup"] ||
+            [name containsString:@"Alert"]) return YES;
         if ([r isKindOfClass:UILabel.class]) {
             NSString *t = ((UILabel *)r).text ?: @"";
             if ([t containsString:@"AwemeX 设置"] || [t containsString:@"文案 / 相关搜索"] || [t containsString:@"透明度"]) return YES;
@@ -816,12 +831,17 @@ static BOOL AXOF_IsNicknameDescView(UIView *v) {
     if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
 
     // iPad 横屏/竖屏都尽量只处理左侧/中部的昵称、文案、话题、声明、IP 等文字。
-    // V30 放宽上边界，覆盖图一这种跑到画面中间偏上的文案行。
-    BOOL leftOrCenterTextArea = f.origin.x < s.width * 0.76 &&
-                                f.origin.y > s.height * 0.12 && f.origin.y < s.height * 0.78 &&
-                                f.size.width < s.width * 0.88 && f.size.height < 120.0;
-    BOOL safeTextLeaf = [v isKindOfClass:UILabel.class] || [v isKindOfClass:UIButton.class];
-    return leftOrCenterTextArea && safeTextLeaf && txt.length > 0;
+    // V33 放宽上边界，覆盖图一这种跑到画面中间偏上的文案行。
+    BOOL leftOrCenterTextArea = f.origin.x < s.width * 0.82 &&
+                                f.origin.y > s.height * 0.08 && f.origin.y < s.height * 0.80 &&
+                                f.size.width < s.width * 0.92 && f.size.height < 140.0;
+    NSString *lowerCls = cls.lowercaseString;
+    BOOL textLikeLeaf = [v isKindOfClass:UILabel.class] || [v isKindOfClass:UIButton.class] ||
+                        [lowerCls containsString:@"label"] || [lowerCls containsString:@"text"] ||
+                        [lowerCls containsString:@"desc"] || [lowerCls containsString:@"caption"] ||
+                        [lowerCls containsString:@"attributed"];
+    // V33：部分 iPad 文案行不是 UILabel，而是自定义 Text/AttributedText 视图；只要能取到文字并在 Feed 文案区，就纳入。
+    return leftOrCenterTextArea && textLikeLeaf && txt.length > 0;
 }
 
 static void AXOF_ApplyAlphaKind(UIView *v, CGFloat alpha, NSInteger kind) {
@@ -847,16 +867,60 @@ static void AXOF_ReapplyMarkedView(UIView *v) {
     else if (kind == 2) AXOF_ApplyAlphaKind(v, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55), 2);
 }
 
+
+static BOOL AXOF_FrameNearRelatedRow(CGRect f, CGRect row, CGSize s) {
+    if (CGRectIsEmpty(f) || CGRectIsEmpty(row)) return NO;
+    CGFloat cy = CGRectGetMidY(f);
+    CGFloat rcy = CGRectGetMidY(row);
+    BOOL sameY = fabs(cy - rcy) < 34.0;
+    BOOL leftArea = f.origin.x < s.width * 0.48;
+    BOOL smallEnough = f.size.width <= s.width * 0.68 && f.size.height <= 86.0;
+    return sameY && leftArea && smallEnough;
+}
+
+static void AXOF_ApplyRelatedNearbyInView(UIView *root, CGRect row, CGFloat alpha, NSInteger depth) {
+    if (!root || depth > 4 || AXOF_IsAwemeXOwnView(root)) return;
+    CGSize s = UIScreen.mainScreen.bounds.size;
+    for (UIView *sub in root.subviews) {
+        CGRect f = AXOF_WindowFrame(sub);
+        NSString *cls = NSStringFromClass(sub.class);
+        NSString *txt = AXOF_ViewText(sub);
+        BOOL classLooksRight = [sub isKindOfClass:UILabel.class] || [sub isKindOfClass:UIButton.class] || [sub isKindOfClass:UIImageView.class] ||
+                               [cls containsString:@"Icon"] || [cls containsString:@"Image"] || [cls containsString:@"Mix"] ||
+                               [cls containsString:@"Collection"] || [cls containsString:@"Search"] || [cls containsString:@"Relation"];
+        BOOL textLooksRight = txt.length > 0 && ([txt containsString:@"相关搜索"] || [txt containsString:@"搜索"] || [txt containsString:@"合集"] || [txt containsString:@"·"]);
+        if ((classLooksRight || textLooksRight) && AXOF_FrameNearRelatedRow(f, row, s)) {
+            AXOF_ApplyAlphaKind(sub, alpha, 2);
+        }
+        AXOF_ApplyRelatedNearbyInView(sub, row, alpha, depth + 1);
+    }
+}
+
+static void AXOF_ApplyRelatedRowSiblings(UIView *container) {
+    if (!container) return;
+    CGFloat alpha = AXOF_Float(kAXOFRelatedSearchAlpha, 0.55);
+    CGRect row = AXOF_WindowFrame(container);
+    if (CGRectIsEmpty(row)) return;
+    row = CGRectInset(row, -90.0, -20.0);
+    UIView *root = container.superview ?: container;
+    for (NSInteger i = 0; i < 2 && root.superview; i++) root = root.superview;
+    AXOF_ApplyRelatedNearbyInView(root, row, alpha, 0);
+}
+
 static void AXOF_ApplyView(UIView *v) {
     if (!v || AXOF_IsAwemeXOwnView(v)) return;
     if (AXOF_IsRelatedSearchView(v)) {
         UIView *container = AXOF_FindRelatedSearchContainer(v) ?: v;
         if (!AXOF_IsAwemeXOwnView(container)) {
             objc_setAssociatedObject(container, &kAXOFRelatedContainerKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            AXOF_ApplyAlphaKind(container, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55), 2);
-            // DYYY 思路：iPad 切视频/重排后 alpha 常被宿主重置，所以延迟再值守两次。
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView(container); });
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView(container); });
+            // V33：只给相关搜索/合集这一行的文字和图标叶子控件套透明度，
+            // 不再直接改整块 UIView 容器，避免分享页/评论页被整块打透明或空白。
+            if ([v isKindOfClass:UILabel.class] || [v isKindOfClass:UIButton.class] || [v isKindOfClass:UIImageView.class]) {
+                AXOF_ApplyAlphaKind(v, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55), 2);
+            }
+            AXOF_ApplyRelatedRowSiblings(container);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ApplyRelatedRowSiblings(container); });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ApplyRelatedRowSiblings(container); });
         }
         return;
     }
@@ -977,7 +1041,7 @@ static void AXOF_RefreshAll(void) {
         }
 
         UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(28, height - 78, width - 56, 58)];
-        tip.text = @"V30：搜索/合集图标也参与透明度；切换视频后自动补套。";
+        tip.text = @"V33：主面板内联透明度；图标/合集同排补套。";
         tip.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.62];
         tip.font = [UIFont systemFontOfSize:11];
         tip.numberOfLines = 2;
@@ -1010,7 +1074,7 @@ static void AXOF_AddSettingsEntryButton(void) {
     for (UIView *sub in panel.subviews) {
         if ([sub isKindOfClass:UILabel.class]) {
             NSString *t = ((UILabel *)sub).text ?: @"";
-            if ([t containsString:@"V29"] || [t containsString:@"V30"] || [t containsString:@"DYYY"] || [t containsString:@"文案/相关搜索"]) {
+            if ([t containsString:@"V33"] || [t containsString:@"V33"] || [t containsString:@"DYYY"] || [t containsString:@"文案/相关搜索"]) {
                 sub.hidden = YES;
             }
         }
@@ -1037,33 +1101,11 @@ static void AXOF_AddSettingsEntryButton(void) {
     objc_setAssociatedObject(panel, &kAXOFSettingsAddedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-%hook AXMenuTarget
-- (void)openSettings {
-    %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_AddSettingsEntryButton(); });
-}
-%end
+// V33：文案/相关搜索透明度已合并到主设置面板，不再额外追加子面板入口。
 
-%hook UIView
-- (void)layoutSubviews {
-    %orig;
-    AXOF_ApplyView((UIView *)self);
-}
-- (void)didMoveToWindow {
-    %orig;
-    AXOF_ApplyView((UIView *)self);
-}
-- (void)setAlpha:(CGFloat)alpha {
-    %orig(alpha);
-    if (!axofApplyingAlpha && !AXOF_IsAwemeXOwnView((UIView *)self)) {
-        NSNumber *kind = objc_getAssociatedObject((UIView *)self, &kAXOFTargetKindKey);
-        if (kind.integerValue > 0) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView((UIView *)self); });
-        }
-    }
-}
-%end
-
+// V33：移除全局 UIView 透明度钩子。
+// 透明度只在 UILabel / UIButton / UIImageView 叶子控件上处理，
+// 避免评论页、分享页、ActionSheet 这类复杂弹层被误伤为空白。
 
 %hook AWEElementStackView
 - (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
@@ -1123,6 +1165,13 @@ static void AXOF_AddSettingsEntryButton(void) {
     %orig;
     AXOF_ApplyView((UIView *)self);
 }
+- (void)setAlpha:(CGFloat)alpha {
+    %orig(alpha);
+    NSNumber *kind = objc_getAssociatedObject((UIView *)self, &kAXOFTargetKindKey);
+    if (!axofApplyingAlpha && kind.integerValue > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView((UIView *)self); });
+    }
+}
 %end
 
 %hook UIButton
@@ -1135,6 +1184,13 @@ static void AXOF_AddSettingsEntryButton(void) {
     %orig;
     AXOF_ApplyView((UIView *)self);
 }
+- (void)setAlpha:(CGFloat)alpha {
+    %orig(alpha);
+    NSNumber *kind = objc_getAssociatedObject((UIView *)self, &kAXOFTargetKindKey);
+    if (!axofApplyingAlpha && kind.integerValue > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView((UIView *)self); });
+    }
+}
 %end
 
 %hook UIImageView
@@ -1146,6 +1202,13 @@ static void AXOF_AddSettingsEntryButton(void) {
 - (void)didMoveToWindow {
     %orig;
     AXOF_ApplyView((UIView *)self);
+}
+- (void)setAlpha:(CGFloat)alpha {
+    %orig(alpha);
+    NSNumber *kind = objc_getAssociatedObject((UIView *)self, &kAXOFTargetKindKey);
+    if (!axofApplyingAlpha && kind.integerValue > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView((UIView *)self); });
+    }
 }
 %end
 
@@ -1437,6 +1500,12 @@ static id AXSB_MakeAction(NSString *title, NSString *kind) {
     if ([cls respondsToSelector:s3]) {
         return ((id (*)(id, SEL, id, id))objc_msgSend)(cls, s3, title, handler);
     }
+
+    // 抖音/DYYY 常见构造方法：actionWithTitle:imgName:handler:
+    SEL s4 = NSSelectorFromString(@"actionWithTitle:imgName:handler:");
+    if ([cls respondsToSelector:s4]) {
+        return ((id (*)(id, SEL, id, id, id))objc_msgSend)(cls, s4, title, nil, handler);
+    }
     return nil;
 }
 
@@ -1444,12 +1513,48 @@ static NSString *AXSB_ActionTitle(id action) {
     id t = AXSB_Send0(action, @selector(title));
     if (!t) t = AXSB_Send0(action, @selector(actionTitle));
     if (!t) t = AXSB_Send0(action, @selector(text));
+    if (!t && [action respondsToSelector:@selector(valueForKey:)]) {
+        @try { t = [action valueForKey:@"title"]; } @catch (NSException *e) {}
+        if (!t) { @try { t = [action valueForKey:@"_title"]; } @catch (NSException *e) {} }
+        if (!t) { @try { t = [action valueForKey:@"name"]; } @catch (NSException *e) {} }
+    }
     return [t isKindOfClass:NSString.class] ? (NSString *)t : nil;
+}
+
+static BOOL AXSB_IsLikelyVideoLongPressActions(NSArray *actions, id sheet) {
+    if (![actions isKindOfClass:NSArray.class] || actions.count == 0) return NO;
+
+    // 不碰分享/评论等右侧入口弹层。它们也可能复用 AWEUserActionSheetView，
+    // V31 在这里追加保存按钮会导致“分享给/评论”内容空白。
+    NSArray *deny = @[@"分享", @"私信", @"朋友", @"微信", @"QQ", @"评论", @"回复", @"转发"];
+    NSArray *allow = @[@"不感兴趣", @"举报", @"清屏", @"倍速", @"保存", @"复制链接", @"一起看", @"稍后再看"];
+    BOOL hasAllow = NO;
+    NSInteger shareLikeCount = 0;
+    for (id a in actions) {
+        NSString *t = AXSB_ActionTitle(a) ?: @"";
+        for (NSString *d in deny) {
+            if ([t containsString:d]) shareLikeCount++;
+        }
+        for (NSString *ok in allow) {
+            if ([t containsString:ok]) hasAllow = YES;
+        }
+    }
+    // V33：部分新版/iPad 长按动作标题无法通过 title 取到，导致 hasAllow 为 NO。
+    // 只要不是明显分享/评论弹层，就允许注入；分享/评论仍通过 deny 和类名排除。
+    if (!hasAllow && actions.count > 12) return NO;
+    if (shareLikeCount >= 2) return NO;
+
+    if (sheet) {
+        NSString *sheetName = NSStringFromClass([sheet class]);
+        if ([sheetName containsString:@"Share"] || [sheetName containsString:@"Comment"]) return NO;
+    }
+    return YES;
 }
 
 static NSArray *AXSB_ActionsByAppendingSaveButtons(NSArray *actions, id sheet) {
     if (!AXSB_Bool(kAXAppendSaveButtons, YES)) return actions;
     if (![actions isKindOfClass:NSArray.class]) return actions;
+    if (!AXSB_IsLikelyVideoLongPressActions(actions, sheet)) return actions;
 
     NSNumber *done = objc_getAssociatedObject(sheet, &kAXSaveButtonsInjectedKey);
     if (done.boolValue) return actions;

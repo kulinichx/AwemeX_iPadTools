@@ -589,7 +589,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, height - 98, width - 60, 22)];
-        note.text = @"V34：修复 V33 未使用函数导致的编译失败。";
+        note.text = @"V35：增强中部文案、相关搜索/合集图标与标题跟随透明；保持弹层排除。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.50];
         note.font = [UIFont systemFontOfSize:11];
         note.numberOfLines = 1;
@@ -728,30 +728,28 @@ static NSString *AXOF_ViewText(UIView *v) {
 
 static BOOL AXOF_IsAwemeXOwnView(UIView *v) {
     if (!v) return NO;
-    // 排除 AwemeX 自己的所有面板，避免“昵称/文案透明度”误伤设置页文字。
-    // V33 同时排除评论页/分享页/ActionSheet 等弹层，避免右侧评论、分享打开后内容被透明度逻辑误伤。
+    // V35：继续强排 AwemeX 自身面板与评论/分享/输入/键盘/弹层，避免透明度误伤右侧页。
     UIView *cur = v;
     while (cur) {
         if (cur == axPanel || cur == axButton || cur == axofPanel) return YES;
         if (cur.tag == 42029 || cur.tag == 42030) return YES;
         NSString *cn = NSStringFromClass(cur.class);
-        if ([cn containsString:@"Comment"] || [cn containsString:@"Share"] ||
-            [cn containsString:@"ActionSheet"] || [cn containsString:@"Input"] ||
-            [cn containsString:@"Keyboard"] || [cn containsString:@"Popup"] ||
-            [cn containsString:@"Alert"]) return YES;
+        NSArray *deny = @[@"AXOF", @"AXMenu", @"AwemeX", @"Settings", @"Setting", @"Comment", @"Share", @"ActionSheet", @"Input", @"Keyboard", @"Popup", @"Alert", @"Dialog", @"Toast", @"HalfScreen", @"Popover", @"Reply", @"TextInput"];
+        for (NSString *d in deny) {
+            if ([cn containsString:d]) return YES;
+        }
         cur = cur.superview;
     }
     UIResponder *r = v;
     while (r) {
         NSString *name = NSStringFromClass(r.class);
-        if ([name containsString:@"AXMenuTarget"] || [name containsString:@"AXOFSettingsTarget"]) return YES;
-        if ([name containsString:@"Comment"] || [name containsString:@"Share"] ||
-            [name containsString:@"ActionSheet"] || [name containsString:@"Input"] ||
-            [name containsString:@"Keyboard"] || [name containsString:@"Popup"] ||
-            [name containsString:@"Alert"]) return YES;
+        NSArray *deny = @[@"AXOF", @"AXMenu", @"AwemeX", @"Settings", @"Setting", @"Comment", @"Share", @"ActionSheet", @"Input", @"Keyboard", @"Popup", @"Alert", @"Dialog", @"Toast", @"HalfScreen", @"Popover", @"Reply", @"TextInput"];
+        for (NSString *d in deny) {
+            if ([name containsString:d]) return YES;
+        }
         if ([r isKindOfClass:UILabel.class]) {
             NSString *t = ((UILabel *)r).text ?: @"";
-            if ([t containsString:@"AwemeX 设置"] || [t containsString:@"文案 / 相关搜索"] || [t containsString:@"透明度"]) return YES;
+            if ([t containsString:@"AwemeX 设置"] || [t containsString:@"文案 / 相关搜索"] || [t containsString:@"透明度"] || [t containsString:@"不透明度"]) return YES;
         }
         r = r.nextResponder;
     }
@@ -793,54 +791,71 @@ static BOOL AXOF_IsRelatedSearchView(UIView *v) {
     if (AXOF_HasMarkedRelatedSearchAncestor(v)) return YES;
     NSString *cls = NSStringFromClass(v.class);
     NSString *txt = AXOF_ViewText(v);
+    NSString *lowerCls = cls.lowercaseString;
     if ([txt containsString:@"相关搜索"] || [txt containsString:@"合集"] ||
-        ([txt containsString:@"搜索"] && txt.length <= 36)) return YES;
-    if ([cls containsString:@"RelatedSearch"] || [cls containsString:@"RelationSearch"] ||
-        [cls containsString:@"SearchEntrance"] || [cls containsString:@"SearchBar"] ||
-        [cls containsString:@"SearchHint"] || [cls containsString:@"FeedSearch"] ||
-        [cls containsString:@"Mix"] || [cls containsString:@"Collection"]) return YES;
+        ([txt containsString:@"搜索"] && txt.length <= 48)) return YES;
+    if ([lowerCls containsString:@"relatedsearch"] || [lowerCls containsString:@"relationsearch"] ||
+        [lowerCls containsString:@"searchentrance"] || [lowerCls containsString:@"searchbar"] ||
+        [lowerCls containsString:@"searchhint"] || [lowerCls containsString:@"feedsearch"] ||
+        [lowerCls containsString:@"mix"] || [lowerCls containsString:@"collection"] ||
+        [lowerCls containsString:@"magnifier"] || [lowerCls containsString:@"aggregate"] ||
+        [lowerCls containsString:@"series"] || [lowerCls containsString:@"playlist"]) return YES;
 
-    // 坐标兜底：底部偏上的“相关搜索 / 合集”横条。这里把开头的放大镜/合集图标也纳入。
-    if (![v isKindOfClass:UILabel.class] && ![v isKindOfClass:UIButton.class] && ![v isKindOfClass:UIImageView.class]) return NO;
     CGRect f = AXOF_WindowFrame(v);
     CGSize s = UIScreen.mainScreen.bounds.size;
     if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
-    BOOL inStripY = f.origin.y > s.height * 0.46 && f.origin.y < s.height * 0.74;
-    BOOL stripText = inStripY && f.origin.x < s.width * 0.30 && f.size.width > s.width * 0.18 &&
-                     f.size.height < 86.0 &&
-                     (txt.length > 0 && ([txt containsString:@"搜索"] || [txt containsString:@"合集"]));
-    BOOL stripIcon = inStripY && f.origin.x < s.width * 0.14 && f.size.width <= 72.0 && f.size.height <= 72.0;
+    BOOL inStripY = f.origin.y > s.height * 0.40 && f.origin.y < s.height * 0.78;
+    BOOL leafLike = [v isKindOfClass:UILabel.class] || [v isKindOfClass:UIButton.class] || [v isKindOfClass:UIImageView.class] ||
+                    [lowerCls containsString:@"label"] || [lowerCls containsString:@"text"] || [lowerCls containsString:@"icon"] ||
+                    [lowerCls containsString:@"image"] || [lowerCls containsString:@"glyph"];
+    if (!leafLike) return NO;
+    BOOL stripText = inStripY && f.origin.x < s.width * 0.46 && f.size.width > 16.0 &&
+                     f.size.width < s.width * 0.78 && f.size.height < 96.0 &&
+                     (txt.length > 0 && ([txt containsString:@"搜索"] || [txt containsString:@"合集"] || [txt containsString:@"相关"]));
+    // V35：放大镜/合集图标有时无文字，只靠同一横条位置与尺寸识别。
+    BOOL stripIcon = inStripY && f.origin.x < s.width * 0.22 && f.size.width <= 86.0 && f.size.height <= 86.0;
     return stripText || stripIcon;
 }
 
 static BOOL AXOF_IsNicknameDescView(UIView *v) {
     if (!v || !v.superview || AXOF_IsAwemeXOwnView(v)) return NO;
-    if (![v isKindOfClass:UILabel.class] && ![v isKindOfClass:UIButton.class] && ![v isKindOfClass:UIImageView.class]) return NO;
     if (AXOF_IsRelatedSearchView(v)) return NO;
 
     NSString *cls = NSStringFromClass(v.class);
+    NSString *lowerCls = cls.lowercaseString;
     NSString *txt = AXOF_ViewText(v);
-    if ([cls containsString:@"Nick"] || [cls containsString:@"Author"] || [cls containsString:@"Desc"] ||
-        [cls containsString:@"Caption"] || [cls containsString:@"TitleLabel"] || [cls containsString:@"FeedAnchor"]) return YES;
-    if ([txt hasPrefix:@"@"] || [txt containsString:@"#"] || [txt containsString:@"IP属地"] ||
-        [txt containsString:@"作者声明"] || [txt containsString:@"虚构演绎"]) return YES;
-
     CGRect f = AXOF_WindowFrame(v);
     CGSize s = UIScreen.mainScreen.bounds.size;
     if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
 
-    // iPad 横屏/竖屏都尽量只处理左侧/中部的昵称、文案、话题、声明、IP 等文字。
-    // V33 放宽上边界，覆盖图一这种跑到画面中间偏上的文案行。
-    BOOL leftOrCenterTextArea = f.origin.x < s.width * 0.82 &&
-                                f.origin.y > s.height * 0.08 && f.origin.y < s.height * 0.80 &&
-                                f.size.width < s.width * 0.92 && f.size.height < 140.0;
-    NSString *lowerCls = cls.lowercaseString;
     BOOL textLikeLeaf = [v isKindOfClass:UILabel.class] || [v isKindOfClass:UIButton.class] ||
                         [lowerCls containsString:@"label"] || [lowerCls containsString:@"text"] ||
                         [lowerCls containsString:@"desc"] || [lowerCls containsString:@"caption"] ||
-                        [lowerCls containsString:@"attributed"];
-    // V33：部分 iPad 文案行不是 UILabel，而是自定义 Text/AttributedText 视图；只要能取到文字并在 Feed 文案区，就纳入。
-    return leftOrCenterTextArea && textLikeLeaf && txt.length > 0;
+                        [lowerCls containsString:@"attributed"] || [lowerCls containsString:@"rich"] ||
+                        [lowerCls containsString:@"yylabel"] || [lowerCls containsString:@"ttt"] ||
+                        [lowerCls containsString:@"nickname"] || [lowerCls containsString:@"author"] ||
+                        [lowerCls containsString:@"feedanchor"] || [lowerCls containsString:@"playinteraction"];
+    if (!textLikeLeaf) return NO;
+
+    BOOL feedTextArea = f.origin.x < s.width * 0.84 &&
+                        f.origin.y > s.height * 0.06 && f.origin.y < s.height * 0.82 &&
+                        f.size.width < s.width * 0.94 && f.size.height < 168.0;
+    if (!feedTextArea) return NO;
+
+    if ([cls containsString:@"Nick"] || [cls containsString:@"Author"] || [cls containsString:@"Desc"] ||
+        [cls containsString:@"Caption"] || [cls containsString:@"TitleLabel"] || [cls containsString:@"FeedAnchor"] ||
+        [lowerCls containsString:@"nickname"] || [lowerCls containsString:@"author"] || [lowerCls containsString:@"description"] ||
+        [lowerCls containsString:@"caption"] || [lowerCls containsString:@"aweme"] || [lowerCls containsString:@"playinteraction"]) return YES;
+
+    if (txt.length == 0) return NO;
+    if ([txt hasPrefix:@"@"] || [txt containsString:@"#"] || [txt containsString:@"IP属地"] ||
+        [txt containsString:@"作者声明"] || [txt containsString:@"虚构演绎"] || [txt containsString:@"展开"] ||
+        [txt containsString:@"收起"] || [txt containsString:@"原声"] || [txt containsString:@"音乐"]) return YES;
+
+    // V35：覆盖部分 iPad 中部文案：类名不明显但能取到文字，位置在 feed 文案区，且不是右侧按钮/弹层。
+    BOOL looksLikeFeedCaptionText = txt.length >= 2 && txt.length <= 220 &&
+                                    f.origin.x < s.width * 0.72 && f.size.height <= 156.0;
+    return looksLikeFeedCaptionText;
 }
 
 static void AXOF_ApplyAlphaKind(UIView *v, CGFloat alpha, NSInteger kind) {
@@ -871,23 +886,27 @@ static BOOL AXOF_FrameNearRelatedRow(CGRect f, CGRect row, CGSize s) {
     if (CGRectIsEmpty(f) || CGRectIsEmpty(row)) return NO;
     CGFloat cy = CGRectGetMidY(f);
     CGFloat rcy = CGRectGetMidY(row);
-    BOOL sameY = fabs(cy - rcy) < 34.0;
-    BOOL leftArea = f.origin.x < s.width * 0.48;
-    BOOL smallEnough = f.size.width <= s.width * 0.68 && f.size.height <= 86.0;
-    return sameY && leftArea && smallEnough;
+    BOOL sameY = fabs(cy - rcy) < MAX(42.0, row.size.height * 0.70);
+    BOOL leftArea = f.origin.x < s.width * 0.58;
+    BOOL smallEnough = f.size.width <= s.width * 0.78 && f.size.height <= 104.0;
+    BOOL overlapsExpandedRow = CGRectIntersectsRect(f, CGRectInset(row, -48.0, -22.0));
+    return (sameY || overlapsExpandedRow) && leftArea && smallEnough;
 }
 
 static void AXOF_ApplyRelatedNearbyInView(UIView *root, CGRect row, CGFloat alpha, NSInteger depth) {
-    if (!root || depth > 4 || AXOF_IsAwemeXOwnView(root)) return;
+    if (!root || depth > 6 || AXOF_IsAwemeXOwnView(root)) return;
     CGSize s = UIScreen.mainScreen.bounds.size;
     for (UIView *sub in root.subviews) {
         CGRect f = AXOF_WindowFrame(sub);
         NSString *cls = NSStringFromClass(sub.class);
+        NSString *lowerCls = cls.lowercaseString;
         NSString *txt = AXOF_ViewText(sub);
         BOOL classLooksRight = [sub isKindOfClass:UILabel.class] || [sub isKindOfClass:UIButton.class] || [sub isKindOfClass:UIImageView.class] ||
-                               [cls containsString:@"Icon"] || [cls containsString:@"Image"] || [cls containsString:@"Mix"] ||
-                               [cls containsString:@"Collection"] || [cls containsString:@"Search"] || [cls containsString:@"Relation"];
-        BOOL textLooksRight = txt.length > 0 && ([txt containsString:@"相关搜索"] || [txt containsString:@"搜索"] || [txt containsString:@"合集"] || [txt containsString:@"·"]);
+                               [lowerCls containsString:@"icon"] || [lowerCls containsString:@"image"] || [lowerCls containsString:@"glyph"] ||
+                               [lowerCls containsString:@"mix"] || [lowerCls containsString:@"collection"] || [lowerCls containsString:@"series"] ||
+                               [lowerCls containsString:@"playlist"] || [lowerCls containsString:@"search"] || [lowerCls containsString:@"relation"] ||
+                               [lowerCls containsString:@"label"] || [lowerCls containsString:@"text"];
+        BOOL textLooksRight = txt.length > 0 && ([txt containsString:@"相关搜索"] || [txt containsString:@"搜索"] || [txt containsString:@"合集"] || [txt containsString:@"·"] || txt.length <= 48);
         if ((classLooksRight || textLooksRight) && AXOF_FrameNearRelatedRow(f, row, s)) {
             AXOF_ApplyAlphaKind(sub, alpha, 2);
         }
@@ -900,9 +919,9 @@ static void AXOF_ApplyRelatedRowSiblings(UIView *container) {
     CGFloat alpha = AXOF_Float(kAXOFRelatedSearchAlpha, 0.55);
     CGRect row = AXOF_WindowFrame(container);
     if (CGRectIsEmpty(row)) return;
-    row = CGRectInset(row, -90.0, -20.0);
+    row = CGRectInset(row, -140.0, -28.0);
     UIView *root = container.superview ?: container;
-    for (NSInteger i = 0; i < 2 && root.superview; i++) root = root.superview;
+    for (NSInteger i = 0; i < 3 && root.superview; i++) root = root.superview;
     AXOF_ApplyRelatedNearbyInView(root, row, alpha, 0);
 }
 
@@ -1040,7 +1059,7 @@ static void AXOF_RefreshAll(void) {
         }
 
         UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(28, height - 78, width - 56, 58)];
-        tip.text = @"V34：主面板内联透明度；修复编译告警。";
+        tip.text = @"V35：增强中部文案与相关搜索/合集整行透明；继续排除评论/分享弹层。";
         tip.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.62];
         tip.font = [UIFont systemFontOfSize:11];
         tip.numberOfLines = 2;
@@ -1049,7 +1068,7 @@ static void AXOF_RefreshAll(void) {
 }
 @end
 
-// V34：透明度滑块已并入主面板，移除旧的子面板入口按钮函数，避免 -Wunused-function 编译失败。
+// V35：透明度滑块继续保留在主面板；增强叶子控件识别，避免 unused function。
 
 // V33：文案/相关搜索透明度已合并到主设置面板，不再额外追加子面板入口。
 
@@ -1489,16 +1508,15 @@ static BOOL AXSB_IsLikelyVideoLongPressActions(NSArray *actions, id sheet) {
             if ([t containsString:ok]) hasAllow = YES;
         }
     }
-    // V33：部分新版/iPad 长按动作标题无法通过 title 取到，导致 hasAllow 为 NO。
-    // 只要不是明显分享/评论弹层，就允许注入；分享/评论仍通过 deny 和类名排除。
-    if (!hasAllow && actions.count > 12) return NO;
+    // V35：部分 iPad 长按菜单标题取不到；只要不是明显分享/评论弹层，就允许注入。
     if (shareLikeCount >= 2) return NO;
 
     if (sheet) {
         NSString *sheetName = NSStringFromClass([sheet class]);
-        if ([sheetName containsString:@"Share"] || [sheetName containsString:@"Comment"]) return NO;
+        if ([sheetName containsString:@"Share"] || [sheetName containsString:@"Comment"] || [sheetName containsString:@"Input"] || [sheetName containsString:@"Keyboard"]) return NO;
     }
-    return YES;
+    if (hasAllow) return YES;
+    return actions.count <= 12;
 }
 
 static NSArray *AXSB_ActionsByAppendingSaveButtons(NSArray *actions, id sheet) {

@@ -13,6 +13,9 @@
 static UIButton *axButton;
 static UIView *axPanel;
 static BOOL axApplyingElementEffects = NO;
+static UILongPressGestureRecognizer *axTwoFingerLongPressGesture = nil;
+static char kAXTwoFingerGestureInstalledKey;
+
 
 static NSString * const kAXTopAlpha = @"ax_top_alpha";
 static NSString * const kAXRightAlpha = @"ax_right_alpha";
@@ -563,6 +566,58 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 }
 @end
 
+@interface AXTwoFingerLongPressTarget : NSObject <UIGestureRecognizerDelegate>
++ (instancetype)shared;
+- (void)handleTwoFingerLongPress:(UILongPressGestureRecognizer *)gesture;
+@end
+
+@implementation AXTwoFingerLongPressTarget
++ (instancetype)shared {
+    static AXTwoFingerLongPressTarget *target;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ target = [AXTwoFingerLongPressTarget new]; });
+    return target;
+}
+
+- (void)handleTwoFingerLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[AXMenuTarget shared] openSettings];
+    });
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    return YES;
+}
+@end
+
+static void AXInstallTwoFingerLongPressGesture(void) {
+    UIWindow *w = AXKeyWindow();
+    if (!w) return;
+
+    NSNumber *installed = objc_getAssociatedObject(w, &kAXTwoFingerGestureInstalledKey);
+    if (installed.boolValue) return;
+
+    AXTwoFingerLongPressTarget *target = [AXTwoFingerLongPressTarget shared];
+    UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:@selector(handleTwoFingerLongPress:)];
+    g.numberOfTouchesRequired = 2;
+    g.minimumPressDuration = 0.75;
+    g.cancelsTouchesInView = NO;
+    g.delaysTouchesBegan = NO;
+    g.delaysTouchesEnded = NO;
+    g.delegate = target;
+    if (@available(iOS 11.0, *)) g.name = @"AwemeXTwoFingerLongPress";
+
+    [w addGestureRecognizer:g];
+    axTwoFingerLongPressGesture = g;
+    objc_setAssociatedObject(w, &kAXTwoFingerGestureInstalledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+
 static void AXShow(void) {
     UIWindow *w = AXKeyWindow();
     if (!w) return;
@@ -662,54 +717,6 @@ static void AXShow(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); AXInstallTwoFingerLongPressGesture(); });
 }
 %end
-
-
-
-@interface AXGestureHandler : NSObject
-+ (instancetype)shared;
-- (void)ax_handleTwoFingerLongPress:(UILongPressGestureRecognizer *)gesture;
-@end
-
-@implementation AXGestureHandler
-+ (instancetype)shared {
-    static AXGestureHandler *g;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ g = [AXGestureHandler new]; });
-    return g;
-}
-- (void)ax_handleTwoFingerLongPress:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state == UIGestureRecognizerStateBegan) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (axPanel) {
-                axPanel.hidden = !axPanel.hidden;
-            }
-        });
-    }
-}
-@end
-
-static BOOL AXGestureInstalled = NO;
-
-static void AXInstallTwoFingerLongPressGesture(void) {
-    if (AXGestureInstalled) return;
-
-    UIWindow *keyWindow = nil;
-    for (UIWindow *w in UIApplication.sharedApplication.windows) {
-        if (w.isKeyWindow) { keyWindow = w; break; }
-    }
-    if (!keyWindow) return;
-
-    UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:[AXGestureHandler shared]
-                                                                                   action:@selector(ax_handleTwoFingerLongPress:)];
-    g.minimumPressDuration = 0.8;
-    g.numberOfTouchesRequired = 2;
-    g.cancelsTouchesInView = NO;
-    g.delaysTouchesBegan = NO;
-    g.delaysTouchesEnded = NO;
-
-    [keyWindow addGestureRecognizer:g];
-    AXGestureInstalled = YES;
-}
 
 %ctor {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); AXInstallTwoFingerLongPressGesture(); });

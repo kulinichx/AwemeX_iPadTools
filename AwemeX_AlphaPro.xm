@@ -41,6 +41,24 @@ static NSString *AXInfo(UIView *v) {
     if ([v respondsToSelector:@selector(accessibilityLabel)] && v.accessibilityLabel.length) {
         [s appendFormat:@" %@", v.accessibilityLabel];
     }
+    if ([v isKindOfClass:UILabel.class]) {
+        NSString *t = ((UILabel *)v).text;
+        if (t.length) [s appendFormat:@" %@", t];
+    }
+    if ([v isKindOfClass:UITextField.class]) {
+        UITextField *tf = (UITextField *)v;
+        if (tf.text.length) [s appendFormat:@" %@", tf.text];
+        if (tf.placeholder.length) [s appendFormat:@" %@", tf.placeholder];
+    }
+    return s.lowercaseString;
+}
+
+static NSString *AXDeepInfo(UIView *v, NSInteger depth) {
+    NSMutableString *s = [NSMutableString stringWithString:AXInfo(v)];
+    if (depth <= 0) return s;
+    for (UIView *sub in v.subviews) {
+        [s appendFormat:@" %@", AXDeepInfo(sub, depth - 1)];
+    }
     return s.lowercaseString;
 }
 
@@ -123,35 +141,59 @@ static BOOL AXLooksLikeTopRightSearch(UIView *v) {
     CGRect r = [v.superview convertRect:v.frame toView:nil];
     CGSize screen = UIScreen.mainScreen.bounds.size;
 
-    BOOL topRight = r.origin.x > screen.width * 0.70 &&
+    BOOL topRight = r.origin.x > screen.width * 0.58 &&
                     r.origin.y >= 0 &&
-                    r.origin.y < screen.height * 0.18;
+                    r.origin.y < screen.height * 0.16;
 
-    BOOL smallButton = r.size.width >= 20 && r.size.width <= 120 &&
-                       r.size.height >= 20 && r.size.height <= 80;
+    BOOL searchSize = r.size.width >= 22 && r.size.width <= 320 &&
+                      r.size.height >= 20 && r.size.height <= 90;
 
-    if (!(topRight && smallButton)) return NO;
+    if (!(topRight && searchSize)) return NO;
 
-    NSString *s = AXInfo(v);
+    NSString *s = AXDeepInfo(v, 3);
 
     BOOL textHit = [s containsString:@"search"] ||
                    [s containsString:@"magnifier"] ||
                    [s containsString:@"finder"] ||
                    [s containsString:@"搜索"] ||
-                   [s containsString:@"放大镜"];
+                   [s containsString:@"放大镜"] ||
+                   [s containsString:@"搜"] ||
+                   [s containsString:@"query"];
+
+    BOOL fieldHit = [v isKindOfClass:NSClassFromString(@"UISearchBar")] ||
+                    [v isKindOfClass:UITextField.class];
 
     BOOL classHit = [v isKindOfClass:UIButton.class] ||
                     [v isKindOfClass:UIControl.class] ||
-                    [v isKindOfClass:UIImageView.class];
+                    [v isKindOfClass:UIImageView.class] ||
+                    [v isKindOfClass:UITextField.class];
 
-    // 稳定识别：优先靠搜索相关名称；如果类名/label没有暴露，则仅允许非常靠右上角的小图标命中。
-    BOOL veryCornerIcon = r.origin.x > screen.width * 0.82 &&
-                          r.origin.y < screen.height * 0.13 &&
-                          r.size.width <= 70 &&
-                          r.size.height <= 70 &&
-                          classHit;
+    // 兼容你图一这种“右上搜索框”：宽条、圆角、里面有输入/文字/放大镜。
+    BOOL rightSearchBox = r.origin.x > screen.width * 0.70 &&
+                          r.origin.y < screen.height * 0.12 &&
+                          r.size.width >= 110 &&
+                          r.size.width <= 320 &&
+                          r.size.height >= 26 &&
+                          r.size.height <= 70;
 
-    return textHit || veryCornerIcon;
+    // 兼容旧版单个放大镜小图标。
+    BOOL cornerIcon = r.origin.x > screen.width * 0.82 &&
+                      r.origin.y < screen.height * 0.13 &&
+                      r.size.width <= 80 &&
+                      r.size.height <= 80 &&
+                      classHit;
+
+    return textHit || fieldHit || rightSearchBox || cornerIcon;
+}
+
+// 缩放时靠右下，不再围绕自身中心缩放。
+// scale < 1 时，向右下补偿；scale > 1 时，仍以右下作为视觉锚点。
+static CGAffineTransform AXRightBottomScaleTransform(UIView *v, CGFloat scale) {
+    CGFloat dx = (1.0 - scale) * v.bounds.size.width * 0.50;
+    CGFloat dy = (1.0 - scale) * v.bounds.size.height * 0.50;
+    CGAffineTransform t = CGAffineTransformMakeTranslation(dx, dy);
+    t = CGAffineTransformScale(t, scale, scale);
+    return t;
 }
 
 static void AXApplyVisibleSettings(void) {
@@ -174,7 +216,7 @@ static void AXApplyVisibleSettings(void) {
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:win];
     NSInteger count = 0;
 
-    while (stack.count && count < 1000) {
+    while (stack.count && count < 1100) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
         count++;
@@ -189,10 +231,10 @@ static void AXApplyVisibleSettings(void) {
             v.alpha = topOpacity;
         } else if (AXLooksLikeRightButtonItem(v)) {
             v.alpha = rightOpacity;
-            v.transform = CGAffineTransformMakeScale(rightScale, rightScale);
+            v.transform = AXRightBottomScaleTransform(v, rightScale);
         } else if (AXLooksLikeRightButtonLabel(v)) {
             v.alpha = rightOpacity;
-            v.transform = CGAffineTransformMakeScale(rightScale, rightScale);
+            v.transform = AXRightBottomScaleTransform(v, rightScale);
         }
 
         for (UIView *sub in v.subviews) {
@@ -230,7 +272,7 @@ static void AXApplyVisibleSettings(void) {
     [self.view addSubview:card];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 18, 430, 36)];
-    title.text = @"AwemeX 设置 V6";
+    title.text = @"AwemeX 设置 V7";
     title.textColor = UIColor.whiteColor;
     title.textAlignment = NSTextAlignmentCenter;
     title.font = [UIFont boldSystemFontOfSize:18];
@@ -285,7 +327,7 @@ static void AXApplyVisibleSettings(void) {
     [card.contentView addSubview:_floatSwitch];
 
     UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(24, 474, 382, 36)];
-    tip.text = @"搜索隐藏采用右上角位置 + 搜索关键词 + 小图标兜底识别。";
+    tip.text = @"V7：右侧按钮缩放改为右下锚点；搜索框识别兼容右上宽条搜索框。";
     tip.textColor = [UIColor colorWithWhite:1 alpha:0.72];
     tip.font = [UIFont systemFontOfSize:12];
     tip.numberOfLines = 2;

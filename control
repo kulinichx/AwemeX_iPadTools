@@ -1,9 +1,9 @@
-Package: com.awemex.v6.hidesearch
-Name: AwemeX V6 Hide Search
+Package: com.awemex.v7.anchorsearch
+Name: AwemeX V7 Anchor Search
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: AX settings panel with stable top-right search hiding
-Version: 6.0
+Description: Right-button scaling anchored to bottom-right and fixed top-right search hiding
+Version: 7.0
 Maintainer: test
 Author: test
 Section: Tweaks

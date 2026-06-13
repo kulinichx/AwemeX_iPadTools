@@ -6,6 +6,7 @@
 
 static UIButton *axButton;
 static UIView *axPanel;
+static BOOL axApplyingElementEffects = NO;
 
 static NSString * const kAXTopAlpha = @"ax_top_alpha";
 static NSString * const kAXRightAlpha = @"ax_right_alpha";
@@ -150,6 +151,9 @@ static BOOL AXIsTopStack(UIView *v) {
 
 static void AXApplyElementEffects(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v)) return;
+    if (axApplyingElementEffects) return;
+
+    axApplyingElementEffects = YES;
 
     if (AXIsRightStack(v)) {
         CGFloat scale = AXFloat(kAXScale, 0.81);
@@ -169,13 +173,17 @@ static void AXApplyElementEffects(UIView *v) {
             CGAffineTransform t = CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
             if (!CGAffineTransformEqualToTransform(v.transform, t)) v.transform = t;
         }
-        v.alpha = alpha;
+        if (fabs(v.alpha - alpha) > 0.001) v.alpha = alpha;
+        axApplyingElementEffects = NO;
         return;
     }
 
     if (AXIsTopStack(v)) {
-        v.alpha = AXFloat(kAXTopAlpha, 0.65);
+        CGFloat alpha = AXFloat(kAXTopAlpha, 0.65);
+        if (fabs(v.alpha - alpha) > 0.001) v.alpha = alpha;
     }
+
+    axApplyingElementEffects = NO;
 }
 
 
@@ -191,77 +199,28 @@ static void AXRefreshButton(void) {
 }
 
 
-static BOOL AXContainsClassNameSubstring(UIView *view, NSString *needle) {
-    if (!view || needle.length == 0) return NO;
-    NSString *cls = NSStringFromClass(view.class);
-    if ([cls rangeOfString:needle options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
-    for (UIView *sub in view.subviews) {
-        if (AXContainsClassNameSubstring(sub, needle)) return YES;
-    }
-    return NO;
-}
 
-static BOOL AXContainsTextInput(UIView *view) {
-    if (!view) return NO;
-    if ([view isKindOfClass:UITextField.class] || [view isKindOfClass:UITextView.class]) return YES;
-    for (UIView *sub in view.subviews) {
-        if (AXContainsTextInput(sub)) return YES;
-    }
-    return NO;
-}
 
-static BOOL AXIsTopRightSearchView(UIView *v) {
-    if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
-    UIWindow *w = AXKeyWindow();
-    if (!w) return NO;
-    CGRect f = [v.superview convertRect:v.frame toView:w];
-    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
-    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
-    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
-
-    // iPad 顶部右上搜索框：通常是右上角横向宽条，类名不一定带 Search，
-    // 所以这里改为“位置 + 尺寸 + 横向比例”识别。
-    if (f.origin.x < screenW * 0.58) return NO;
-    if (f.origin.y < screenH * 0.018 || f.origin.y > screenH * 0.12) return NO;
-    if (f.size.width < screenW * 0.12 || f.size.width > screenW * 0.42) return NO;
-    if (f.size.height < 22.0 || f.size.height > 68.0) return NO;
-    if (f.size.width < f.size.height * 2.0) return NO;
-
-    NSString *cls = NSStringFromClass(v.class);
-    BOOL looksSearch = ([cls rangeOfString:@"Search" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                        [cls rangeOfString:@"Find" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                        AXContainsClassNameSubstring(v, @"Search") ||
-                        AXContainsClassNameSubstring(v, @"Find") ||
-                        AXContainsTextInput(v));
-
-    // 有些版本搜索框只是普通容器 + label/image，不带搜索类名；宽条位置已经足够准确。
-    return looksSearch || YES;
-}
-
-static void AXApplySearchHide(UIView *v) {
+static void AXApplySearchEntranceHide(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v)) return;
-    if (!AXIsTopRightSearchView(v)) return;
     BOOL shouldHide = AXBool(kAXHideSearch, YES);
-    objc_setAssociatedObject(v, @selector(AXApplySearchHide), @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    v.hidden = shouldHide;
-    v.alpha = shouldHide ? 0.0 : 1.0;
-    v.userInteractionEnabled = !shouldHide;
-}
-
-static void AXRestoreSearchIfNeeded(UIView *v) {
-    if (!v) return;
-    NSNumber *marked = objc_getAssociatedObject(v, @selector(AXApplySearchHide));
-    if (marked.boolValue && !AXBool(kAXHideSearch, YES)) {
-        v.hidden = NO;
-        v.alpha = 1.0;
-        v.userInteractionEnabled = YES;
+    if (shouldHide) {
+        objc_setAssociatedObject(v, @selector(AXApplySearchEntranceHide), @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        v.hidden = YES;
+        v.alpha = 0.0;
+        v.userInteractionEnabled = NO;
+    } else {
+        NSNumber *marked = objc_getAssociatedObject(v, @selector(AXApplySearchEntranceHide));
+        if (marked.boolValue) {
+            v.hidden = NO;
+            v.alpha = 1.0;
+            v.userInteractionEnabled = YES;
+        }
     }
 }
 
 static void AXApplyToSubviews(UIView *view) {
     if (!view) return;
-    AXRestoreSearchIfNeeded(view);
-    AXApplySearchHide(view);
     if ([view isKindOfClass:NSClassFromString(@"AWEElementStackView")]) {
         AXApplyElementEffects(view);
     } else if (([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIButton.class] || [view isKindOfClass:UIImageView.class]) && AXIsTopAreaView(view)) {
@@ -361,7 +320,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V13";
+        title.text = @"AwemeX 设置 V14";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -407,7 +366,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V13：恢复默认按钮再上移；右上搜索改为位置识别隐藏。";
+        note.text = @"V14：修复注入闪退；搜索框改为类名 Hook 隐藏。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
@@ -458,29 +417,19 @@ static void AXShow(void) {
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)setFrame:(CGRect)frame { %orig(frame); AXApplyElementEffects((UIView *)self); }
 - (void)setBounds:(CGRect)bounds { %orig(bounds); AXApplyElementEffects((UIView *)self); }
-- (void)setAlpha:(CGFloat)alpha {
-    %orig(alpha);
-    AXApplyElementEffects((UIView *)self);
-}
 %end
 
 
-%hook UIView
-- (void)layoutSubviews {
-    %orig;
-    AXRestoreSearchIfNeeded((UIView *)self);
-    AXApplySearchHide((UIView *)self);
-}
-- (void)didMoveToWindow {
-    %orig;
-    AXRestoreSearchIfNeeded((UIView *)self);
-    AXApplySearchHide((UIView *)self);
-}
-- (void)setFrame:(CGRect)frame {
-    %orig(frame);
-    AXRestoreSearchIfNeeded((UIView *)self);
-    AXApplySearchHide((UIView *)self);
-}
+
+
+%hook AWESearchEntranceView
+- (void)layoutSubviews { %orig; AXApplySearchEntranceHide((UIView *)self); }
+- (void)didMoveToWindow { %orig; AXApplySearchEntranceHide((UIView *)self); }
+%end
+
+%hook AWEHPDiscoverFeedEntranceView
+- (void)layoutSubviews { %orig; AXApplySearchEntranceHide((UIView *)self); }
+- (void)didMoveToWindow { %orig; AXApplySearchEntranceHide((UIView *)self); }
 %end
 
 %hook UILabel

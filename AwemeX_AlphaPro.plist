@@ -1,0 +1,12 @@
+{
+    Filter = {
+        Bundles = (
+            "com.ss.iphone.ugc.Aweme",
+            "com.ss.iphone.ugc.AwemeLite",
+            "com.ss.iphone.ugc.AwemeHD",
+            "com.ss.iphone.ugc.AwemePad",
+            "com.ss.iphone.ugc.AwemeIpad",
+            "com.ss.iphone.ugc.AwemeTablet"
+        );
+    };
+}

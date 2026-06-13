@@ -1,2 +1,20 @@
-# AwemeX_iPadTools
-TikTok iPad Layer Tools (No DYYY dependency)
+# AwemeX iPad Tools
+
+独立小插件，不依赖 DYYY。
+
+功能：
+- 设置顶栏透明：默认 0，不修改原状态
+- 设置全局透明：默认 0，不修改原状态
+- 首页头像透明：默认 0，不修改原状态
+- 右侧栏缩放度：默认 0，不修改原状态
+- 隐藏右上搜索：默认关闭
+- iPad 内置悬浮 `AX` 按钮，点击打开实时调节 UI
+
+编译：
+
+```bash
+make clean
+make package
+```
+
+安装后重启抖音。拖动滑条会实时生效。

@@ -1,0 +1,9 @@
+Package: com.awemex.ipadtools
+Name: AwemeX iPad Tools
+Depends: mobilesubstrate
+Architecture: iphoneos-arm64
+Description: Independent iPad layer tools for Aweme/TikTokLayer. Realtime alpha, scale and search switch.
+Version: 1.1.0
+Maintainer: kulinichx
+Author: kulinichx
+Section: Tweaks

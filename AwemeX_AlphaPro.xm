@@ -25,6 +25,10 @@ static NSString * const kAXGlobalAlpha = @"ax_global_alpha";
 static NSString * const kAXNicknameScale = @"ax_nickname_scale";
 static NSString * const kAXHideSearch = @"ax_hide_search";
 static NSString * const kAXShowButton = @"ax_show_button";
+static NSString * const kAXEnableModernPanel = @"ax_enable_modern_longpress_panel";
+static NSString * const kAXLongPressPanelBlur = @"ax_longpress_panel_blur";
+static NSString * const kAXLongPressPanelDark = @"ax_longpress_panel_dark";
+static NSString * const kAXiPadActionSheetCompat = @"ax_ipad_actionsheet_compat";
 
 static CGFloat AXFloat(NSString *key, CGFloat def) {
     id v = [[NSUserDefaults standardUserDefaults] objectForKey:key];
@@ -454,7 +458,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
 - (void)resetSettings {
     AXSet(kAXGlobalAlpha, @1.00); AXSet(kAXTopAlpha, @0.65); AXSet(kAXRightAlpha, @0.80); AXSet(kAXScale, @0.81);
-    AXSet(kAXIconAlpha, @0.34); AXSet(kAXNicknameScale, @1.00); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES);
+    AXSet(kAXIconAlpha, @0.34); AXSet(kAXNicknameScale, @1.00); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES); AXSet(kAXEnableModernPanel, @YES); AXSet(kAXLongPressPanelBlur, @YES); AXSet(kAXLongPressPanelDark, @YES); AXSet(kAXiPadActionSheetCompat, @YES);
     [self closeSettings];
     AXRefreshAllStacks();
 }
@@ -471,7 +475,17 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
 
 - (void)switchChanged:(UISwitch *)sender {
-    AXSet(sender.tag == 11 ? kAXHideSearch : kAXShowButton, @(sender.on));
+    NSString *key = nil;
+    switch (sender.tag) {
+        case 11: key = kAXHideSearch; break;
+        case 12: key = kAXShowButton; break;
+        case 13: key = kAXEnableModernPanel; break;
+        case 14: key = kAXLongPressPanelBlur; break;
+        case 15: key = kAXLongPressPanelDark; break;
+        case 16: key = kAXiPadActionSheetCompat; break;
+        default: break;
+    }
+    if (key) AXSet(key, @(sender.on));
     AXRefreshButton();
     AXRefreshAllStacks();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
@@ -485,7 +499,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         CGRect b = UIScreen.mainScreen.bounds;
         CGFloat width = MIN(460.0, b.size.width - 90.0);
-        CGFloat height = MIN(620.0, b.size.height - 90.0);
+        CGFloat height = MIN(760.0, b.size.height - 60.0);
         axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
         axPanel.backgroundColor = [[UIColor colorWithWhite:0.08 alpha:1.0] colorWithAlphaComponent:0.86];
         axPanel.layer.cornerRadius = 20;
@@ -497,7 +511,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V20";
+        title.text = @"AwemeX 设置 V22 iPad 面板测试";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -528,30 +542,32 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
             [axPanel addSubview:s];
         }
 
-        NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮"];
-        for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 452 + i * 42;
-            UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 230, 30)];
+        NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮", @"启用新版长按面板", @"长按面板玻璃效果", @"长按面板深色模式", @"iPad 长按菜单兼容"];
+        NSArray *switchKeys = @[kAXHideSearch, kAXShowButton, kAXEnableModernPanel, kAXLongPressPanelBlur, kAXLongPressPanelDark, kAXiPadActionSheetCompat];
+        NSArray *switchDefs = @[@YES, @YES, @YES, @YES, @YES, @YES];
+        for (NSInteger i = 0; i < switchNames.count; i++) {
+            CGFloat y = 452 + i * 38;
+            UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, width - 130, 30)];
             l.text = switchNames[i];
             l.textColor = UIColor.whiteColor;
             l.font = [UIFont boldSystemFontOfSize:15];
             [axPanel addSubview:l];
             UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(width - 85, y, 60, 32)];
-            sw.tag = i == 0 ? 11 : 12;
-            sw.on = AXBool(i == 0 ? kAXHideSearch : kAXShowButton, YES);
+            sw.tag = 11 + i;
+            sw.on = AXBool(switchKeys[i], [switchDefs[i] boolValue]);
             [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
             [axPanel addSubview:sw];
         }
 
-        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 532, width - 60, 26)];
-        note.text = @"V20：新增全局透明和昵称文案缩放；开关区重新排版。";
+        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 688, width - 60, 34)];
+        note.text = @"V22：测试 iPad 单指长按菜单兼容；不替换 fixed18 滑动/缩放逻辑。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
         [axPanel addSubview:note];
 
         UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-        reset.frame = CGRectMake(50, 570, width - 100, 36);
+        reset.frame = CGRectMake(50, height - 52, width - 100, 36);
         reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
         reset.layer.cornerRadius = 9;
         [reset setTitle:@"搞定收工" forState:UIControlStateNormal];
@@ -642,6 +658,72 @@ static void AXShow(void) {
     AXRefreshButton();
 }
 
+
+static NSUInteger AXLongPressPanelStyleMode(void) {
+    if (!AXBool(kAXEnableModernPanel, YES)) return 0;
+    BOOL forceBlur = AXBool(kAXLongPressPanelBlur, YES);
+    BOOL forceDark = AXBool(kAXLongPressPanelDark, YES);
+    if (forceBlur && forceDark) return 1;  // DYYY 常用：毛玻璃 + 深色
+    if (forceBlur && !forceDark) return 2; // 毛玻璃 + 跟随/浅色
+    if (!forceBlur && forceDark) return 3; // 深色非玻璃，若宿主支持
+    return 0;
+}
+
+static UIView *AXFindActionSheetContainer(UIView *view) {
+    if (!view) return nil;
+    if ([view respondsToSelector:@selector(containerView)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id container = [view performSelector:@selector(containerView)];
+#pragma clang diagnostic pop
+        if ([container isKindOfClass:UIView.class]) return (UIView *)container;
+    }
+    return view;
+}
+
+static BOOL AXViewLooksLikeVideoLongPressSheet(UIView *view) {
+    if (!view) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    if ([name containsString:@"LongPressPanel"] || [name containsString:@"ActionSheet"]) return YES;
+    UIView *container = AXFindActionSheetContainer(view);
+    if (container != view) return YES;
+    return NO;
+}
+
+static void AXApplyDYYYLikeSheetStyle(UIView *view) {
+    if (!AXBool(kAXiPadActionSheetCompat, YES)) return;
+    if (!AXBool(kAXEnableModernPanel, YES)) return;
+    if (!AXViewLooksLikeVideoLongPressSheet(view)) return;
+    UIView *container = AXFindActionSheetContainer(view);
+    if (!container) return;
+
+    if (AXBool(kAXLongPressPanelDark, YES)) {
+        container.backgroundColor = [[UIColor colorWithWhite:0.06 alpha:1.0] colorWithAlphaComponent:0.82];
+    }
+
+    if (AXBool(kAXLongPressPanelBlur, YES)) {
+        BOOL hasBlur = NO;
+        for (UIView *sub in container.subviews) {
+            if (sub.tag == 92318 && [sub isKindOfClass:UIVisualEffectView.class]) { hasBlur = YES; break; }
+        }
+        if (!hasBlur) {
+            UIBlurEffect *effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
+            UIVisualEffectView *blur = [[UIVisualEffectView alloc] initWithEffect:effect];
+            blur.tag = 92318;
+            blur.frame = container.bounds;
+            blur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            blur.userInteractionEnabled = NO;
+            [container insertSubview:blur atIndex:0];
+        }
+    }
+
+    for (UIView *sub in container.subviews) {
+        if ([sub isKindOfClass:UILabel.class]) {
+            ((UILabel *)sub).textColor = UIColor.whiteColor;
+        }
+    }
+}
+
 %hook AWEElementStackView
 - (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
@@ -708,6 +790,51 @@ static void AXShow(void) {
 - (void)layoutSubviews {
     %orig;
     AXApplyOverlayLeafAlpha((UIView *)self);
+}
+%end
+
+
+%hook AWELongPressPanelDataManager
++ (BOOL)enableModernLongPressPanelConfigWithSceneIdentifier:(id)arg1 {
+    if (AXBool(kAXEnableModernPanel, YES)) return YES;
+    return %orig;
+}
+%end
+
+%hook AWELongPressPanelABSettings
++ (NSUInteger)modernLongPressPanelStyleMode {
+    if (AXBool(kAXEnableModernPanel, YES)) return AXLongPressPanelStyleMode();
+    return %orig;
+}
+%end
+
+%hook AWEModernLongPressPanelUIConfig
++ (NSUInteger)modernLongPressPanelStyleMode {
+    if (AXBool(kAXEnableModernPanel, YES)) return AXLongPressPanelStyleMode();
+    return %orig;
+}
+%end
+
+%hook AWEUserActionSheetView
+- (void)layoutSubviews {
+    %orig;
+    AXApplyDYYYLikeSheetStyle((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXApplyDYYYLikeSheetStyle((UIView *)self);
+}
+%end
+
+%hook UIView
+- (void)didMoveToWindow {
+    %orig;
+    if (AXBool(kAXiPadActionSheetCompat, YES)) {
+        NSString *cls = NSStringFromClass(self.class);
+        if ([cls containsString:@"LongPressPanel"] || [cls containsString:@"ActionSheet"]) {
+            AXApplyDYYYLikeSheetStyle((UIView *)self);
+        }
+    }
 }
 %end
 

@@ -1,6 +1,8 @@
-Package: com.awemex.alphapro.v10.7
-Name: AwemeX AlphaPro V10.7 Stable
+Package: com.awemex.alphapro
+Name: AwemeXAlphaPro
 Version: 10.7
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate
-Description: stable industrial fix version
+Architecture: iphoneos-arm
+Description: AwemeX alpha and scale tweak
+Maintainer: AwemeX
+Author: AwemeX
+Section: Tweaks

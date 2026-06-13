@@ -67,58 +67,103 @@ static BOOL AXIsRightArea(UIView *v) {
     CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
     if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
     if (f.origin.x < screenW * 0.55) return NO;
-    // 排除顶部频道栏/推荐箭头一类控件，避免把顶部文字旁的小三角也当作右侧按钮栏缩放。
     if (f.origin.y < screenH * 0.25) return NO;
     if (f.size.width > screenW * 0.45 || f.size.height > screenH * 0.85) return NO;
     return YES;
 }
 
+static UIViewController *AXFirstViewControllerFromView(UIView *view) {
+    UIResponder *responder = view;
+    while (responder) {
+        if ([responder isKindOfClass:UIViewController.class]) return (UIViewController *)responder;
+        responder = responder.nextResponder;
+    }
+    return nil;
+}
+
+static BOOL AXContainsSubviewOfClass(UIView *container, Class cls) {
+    if (!container || !cls) return NO;
+    for (UIView *sub in container.subviews) {
+        if ([sub isKindOfClass:cls]) return YES;
+        if (AXContainsSubviewOfClass(sub, cls)) return YES;
+    }
+    return NO;
+}
+
+static BOOL AXStackHasElementClassName(UIView *container, NSString *targetName) {
+    if (!container || targetName.length == 0) return NO;
+    NSArray *subviews = [container.subviews copy];
+    for (NSInteger i = (NSInteger)subviews.count - 1; i >= 0; i--) {
+        UIView *sub = subviews[i];
+        if ([sub respondsToSelector:@selector(elementClassName)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            NSString *name = [sub performSelector:@selector(elementClassName)];
+#pragma clang diagnostic pop
+            if ([name isEqualToString:targetName]) return YES;
+        }
+        if (AXStackHasElementClassName(sub, targetName)) return YES;
+    }
+    return NO;
+}
+
 static BOOL AXIsRightStack(UIView *v) {
     if (![v isKindOfClass:NSClassFromString(@"AWEElementStackView")]) return NO;
     if (AXIsAwemeXPanelView(v)) return NO;
-    NSString *label = v.accessibilityLabel;
-    if ([label isEqualToString:@"right"]) return YES;
-    return AXIsRightArea(v);
-}
 
-static void AXSetAnchorPointPreserveFrame(UIView *view, CGPoint anchorPoint) {
-    if (!view) return;
-    CGPoint oldOrigin = view.frame.origin;
-    view.layer.anchorPoint = anchorPoint;
-    CGPoint newOrigin = view.frame.origin;
-    CGPoint position = view.layer.position;
-    position.x -= newOrigin.x - oldOrigin.x;
-    position.y -= newOrigin.y - oldOrigin.y;
-    view.layer.position = position;
-}
-
-static UIView *AXRightScaleContainerForStack(UIView *v) {
-    if (!v) return nil;
-    UIWindow *w = AXKeyWindow();
-    UIView *candidate = v;
-
-    UIView *p = v.superview;
-    UIView *gp = p ? p.superview : nil;
-    NSArray *candidates = @[gp ?: [NSNull null], p ?: [NSNull null], v];
-
-    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
-    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
-    for (id obj in candidates) {
-        if ((id)obj == [NSNull null]) continue;
-        UIView *c = (UIView *)obj;
-        if (!c || AXIsAwemeXPanelView(c) || !c.superview) continue;
-        CGRect f = [c.superview convertRect:c.frame toView:w];
-        if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) continue;
-        // 只拿视频右侧按钮栏附近的小容器；排除顶部频道栏、设置面板和过大的根容器。
-        if (f.origin.x > screenW * 0.55 &&
-            f.origin.y > screenH * 0.25 &&
-            f.size.width < screenW * 0.38 &&
-            f.size.height < screenH * 0.75) {
-            candidate = c;
-            break;
-        }
+    UIViewController *vc = AXFirstViewControllerFromView(v);
+    NSString *vcName = vc ? NSStringFromClass(vc.class) : @"";
+    if (![vcName containsString:@"AWEPlayInteractionViewController"] &&
+        ![vcName containsString:@"AWELiveNewPreStreamViewController"]) {
+        return AXIsRightArea(v);
     }
-    return candidate;
+
+    NSString *label = v.accessibilityLabel ?: @"";
+    BOOL hasAvatar = AXContainsSubviewOfClass(v, NSClassFromString(@"AWEPlayInteractionUserAvatarView"));
+    BOOL hasUserAvatarElement = AXStackHasElementClassName(v, @"AWEPlayInteractionUserAvatarOptElementElement");
+    return [label isEqualToString:@"right"] || hasAvatar || hasUserAvatarElement;
+}
+
+static void AXApplyScale(UIView *v) {
+    if (!AXIsRightStack(v)) return;
+    CGFloat scale = AXFloat(kAXScale, 0.81);
+    CGFloat alpha = AXFloat(kAXRightAlpha, 0.80);
+
+    v.transform = CGAffineTransformIdentity;
+    if (scale > 0 && fabs(scale - 1.0) > 0.001) {
+        NSArray *subviews = [v.subviews copy];
+        CGFloat ty = 0;
+        for (UIView *view in subviews) {
+            CGFloat viewHeight = view.frame.size.height;
+            ty += (viewHeight - viewHeight * scale) / 2;
+        }
+        CGFloat frameWidth = v.frame.size.width;
+        CGFloat rightTX = (frameWidth - frameWidth * scale) / 2;
+        v.transform = CGAffineTransformMake(scale, 0, 0, scale, rightTX, ty);
+    }
+    v.alpha = alpha;
+}
+
+static void AXRefreshButton(void) {
+    if (!axButton) return;
+    axButton.hidden = !AXBool(kAXShowButton, YES);
+    axButton.alpha = AXFloat(kAXIconAlpha, 0.34);
+    axButton.userInteractionEnabled = YES;
+    axButton.enabled = YES;
+    axButton.layer.zPosition = CGFLOAT_MAX;
+    UIWindow *w = AXKeyWindow();
+    if (w && axButton.superview == w) [w bringSubviewToFront:axButton];
+}
+
+static void AXApplyToSubviews(UIView *view) {
+    if (!view) return;
+    if ([view isKindOfClass:NSClassFromString(@"AWEElementStackView")]) AXApplyScale(view);
+    for (UIView *sub in view.subviews) AXApplyToSubviews(sub);
+}
+
+static void AXRefreshAllStacks(void) {
+    UIWindow *w = AXKeyWindow();
+    AXApplyToSubviews(w);
 }
 
 static void AXResetTransformRecursive(UIView *view) {
@@ -128,38 +173,16 @@ static void AXResetTransformRecursive(UIView *view) {
     for (UIView *sub in view.subviews) AXResetTransformRecursive(sub);
 }
 
-static void AXApplyScale(UIView *v) {
-    if (!AXIsRightStack(v)) return;
-    CGFloat scale = AXFloat(kAXScale, 0.81);
-    CGFloat alpha = AXFloat(kAXRightAlpha, 0.80);
-
-    // 原来是每个 AWEElementStackView 自己缩放，图标间距会散。
-    // 这里改成缩放右侧按钮栏的共同父容器，并以右下角为锚点，效果更接近 DYYY。
-    v.transform = CGAffineTransformIdentity;
-    UIView *target = AXRightScaleContainerForStack(v);
-    if (!target || AXIsAwemeXPanelView(target)) return;
-    AXSetAnchorPointPreserveFrame(target, CGPointMake(1.0, 1.0));
-    target.transform = CGAffineTransformMakeScale(scale, scale);
-    target.alpha = alpha;
-}
-
-static void AXRefreshButton(void) {
-    if (!axButton) return;
-    axButton.hidden = !AXBool(kAXShowButton, YES);
-    axButton.alpha = AXFloat(kAXIconAlpha, 0.34);
-}
-
-static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
+static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat panelWidth) {
     UILabel *l = [[UILabel alloc] initWithFrame:frame];
     l.text = text;
     l.textColor = UIColor.whiteColor;
-    l.font = [UIFont boldSystemFontOfSize:16];
+    l.font = [UIFont boldSystemFontOfSize:15];
     [axPanel addSubview:l];
-    UILabel *r = [[UILabel alloc] initWithFrame:CGRectMake(frame.origin.x + 350, frame.origin.y, 70, frame.size.height)];
-    r.tag = 7000 + (NSInteger)(frame.origin.y);
+    UILabel *r = [[UILabel alloc] initWithFrame:CGRectMake(panelWidth - 110, frame.origin.y, 80, frame.size.height)];
     r.textAlignment = NSTextAlignmentRight;
     r.textColor = UIColor.whiteColor;
-    r.font = [UIFont systemFontOfSize:15];
+    r.font = [UIFont systemFontOfSize:14];
     r.text = value >= 2.0 ? [NSString stringWithFormat:@"%.2fx", value] : [NSString stringWithFormat:@"%.0f%%", value * 100.0];
     [axPanel addSubview:r];
     return r;
@@ -182,12 +205,13 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
     return target;
 }
 
-- (void)closeSettings { [axPanel removeFromSuperview]; axPanel = nil; }
+- (void)closeSettings { [axPanel removeFromSuperview]; axPanel = nil; AXRefreshButton(); }
 
 - (void)resetSettings {
     AXSet(kAXTopAlpha, @0.65); AXSet(kAXRightAlpha, @0.80); AXSet(kAXScale, @0.81);
     AXSet(kAXIconAlpha, @0.34); AXSet(kAXHideSearch, @YES); AXSet(kAXShowButton, @YES);
-    [self closeSettings]; AXRefreshButton();
+    [self closeSettings];
+    AXRefreshAllStacks();
 }
 
 - (void)sliderChanged:(UISlider *)sender {
@@ -196,11 +220,13 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
     UILabel *label = [axPanel viewWithTag:8000 + sender.tag];
     label.text = (sender.tag == 3) ? [NSString stringWithFormat:@"%.2fx", sender.value] : [NSString stringWithFormat:@"%.0f%%", sender.value * 100.0];
     AXRefreshButton();
+    AXRefreshAllStacks();
 }
 
 - (void)switchChanged:(UISwitch *)sender {
     AXSet(sender.tag == 5 ? kAXHideSearch : kAXShowButton, @(sender.on));
     AXRefreshButton();
+    AXRefreshAllStacks();
 }
 
 - (void)openSettings {
@@ -210,39 +236,41 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
         if (axPanel) { [self closeSettings]; return; }
 
         CGRect b = UIScreen.mainScreen.bounds;
-        CGFloat width = MIN(530.0, b.size.width - 70.0);
-        CGFloat height = 610.0;
-        axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width-width)/2.0, (b.size.height-height)/2.0, width, height)];
+        CGFloat width = MIN(460.0, b.size.width - 90.0);
+        CGFloat height = 520.0;
+        axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
         axPanel.backgroundColor = [[UIColor colorWithWhite:0.08 alpha:1.0] colorWithAlphaComponent:0.86];
-        axPanel.layer.cornerRadius = 22;
+        axPanel.layer.cornerRadius = 20;
         axPanel.clipsToBounds = YES;
+        axPanel.userInteractionEnabled = YES;
+        axPanel.exclusiveTouch = YES;
+        axPanel.layer.zPosition = CGFLOAT_MAX;
         [w addSubview:axPanel];
-        axPanel.layer.zPosition = 999999;
-        axPanel.transform = CGAffineTransformIdentity;
+        [w bringSubviewToFront:axPanel];
 
-        UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 22, width, 30)];
-        title.text = @"AwemeX 设置 V9";
+        UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
+        title.text = @"AwemeX 设置 V10";
         title.textColor = UIColor.whiteColor;
-        title.font = [UIFont boldSystemFontOfSize:19];
+        title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
         [axPanel addSubview:title];
 
         UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-        close.frame = CGRectMake(width - 55, 20, 36, 36);
+        close.frame = CGRectMake(width - 50, 18, 34, 34);
         [close setTitle:@"×" forState:UIControlStateNormal];
         [close setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        close.titleLabel.font = [UIFont boldSystemFontOfSize:24];
+        close.titleLabel.font = [UIFont boldSystemFontOfSize:23];
         [close addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
         [axPanel addSubview:close];
 
-        NSArray *names = @[@"顶部不透明度", @"右侧按钮不透明度", @"右侧按钮缩放比例度", @"AX 图标不透明度"];
+        NSArray *names = @[@"顶部不透明度", @"右侧按钮不透明度", @"右侧按钮缩放比例", @"AX 图标不透明度"];
         NSArray *keys = @[kAXTopAlpha, kAXRightAlpha, kAXScale, kAXIconAlpha];
         NSArray *defs = @[@0.65, @0.80, @0.81, @0.34];
         for (NSInteger i = 0; i < 4; i++) {
-            CGFloat y = 80 + i * 88;
-            UILabel *val = AXLabel(names[i], AXFloat(keys[i], [defs[i] floatValue]), CGRectMake(30, y, 250, 26));
+            CGFloat y = 68 + i * 74;
+            UILabel *val = AXLabel(names[i], AXFloat(keys[i], [defs[i] floatValue]), CGRectMake(30, y, 230, 24), width);
             val.tag = 8000 + i + 1;
-            UISlider *s = [[UISlider alloc] initWithFrame:CGRectMake(30, y + 38, width - 60, 34)];
+            UISlider *s = [[UISlider alloc] initWithFrame:CGRectMake(30, y + 32, width - 60, 30)];
             s.tag = i + 1;
             s.minimumValue = (i == 2) ? 0.50 : 0.05;
             s.maximumValue = (i == 2) ? 1.30 : 1.00;
@@ -253,9 +281,11 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
 
         NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮"];
         for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 435 + i * 48;
-            UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 250, 32)];
-            l.text = switchNames[i]; l.textColor = UIColor.whiteColor; l.font = [UIFont boldSystemFontOfSize:16];
+            CGFloat y = 372 + i * 43;
+            UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 230, 30)];
+            l.text = switchNames[i];
+            l.textColor = UIColor.whiteColor;
+            l.font = [UIFont boldSystemFontOfSize:15];
             [axPanel addSubview:l];
             UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(width - 85, y, 60, 32)];
             sw.tag = i == 0 ? 5 : 6;
@@ -264,23 +294,24 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
             [axPanel addSubview:sw];
         }
 
-        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 525, width - 60, 38)];
-        note.text = @"V9：排除顶部推荐箭头；面板按钮和开关强制不参与右侧缩放。";
+        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 452, width - 60, 30)];
+        note.text = @"V10：右侧缩放逻辑改为 DYYY iPad 同款；面板尺寸已缩小。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
-        note.font = [UIFont systemFontOfSize:13];
+        note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
         [axPanel addSubview:note];
 
         UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-        reset.frame = CGRectMake(50, 565, width - 100, 44);
+        reset.frame = CGRectMake(50, 482, width - 100, 36);
         reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
-        reset.layer.cornerRadius = 10;
+        reset.layer.cornerRadius = 9;
         [reset setTitle:@"恢复默认" forState:UIControlStateNormal];
         [reset setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
         [reset addTarget:self action:@selector(resetSettings) forControlEvents:UIControlEventTouchUpInside];
         [axPanel addSubview:reset];
-        // 防止右侧按钮缩放逻辑误伤面板内的关闭按钮/开关。
+
         AXResetTransformRecursive(axPanel);
+        [w bringSubviewToFront:axPanel];
     });
 }
 @end
@@ -288,7 +319,11 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame) {
 static void AXShow(void) {
     UIWindow *w = AXKeyWindow();
     if (!w) return;
-    if (axButton) { if (axButton.superview != w) [w addSubview:axButton]; AXRefreshButton(); return; }
+    if (axButton) {
+        if (axButton.superview != w) [w addSubview:axButton];
+        AXRefreshButton();
+        return;
+    }
     axButton = [UIButton buttonWithType:UIButtonTypeSystem];
     axButton.frame = CGRectMake(20, 200, 54, 54);
     axButton.layer.cornerRadius = 27;
@@ -297,6 +332,9 @@ static void AXShow(void) {
     [axButton setTitle:@"AX" forState:UIControlStateNormal];
     [axButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     axButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightMedium];
+    axButton.userInteractionEnabled = YES;
+    axButton.enabled = YES;
+    axButton.layer.zPosition = CGFLOAT_MAX;
     [axButton addTarget:[AXMenuTarget shared] action:@selector(openSettings) forControlEvents:UIControlEventTouchUpInside];
     [w addSubview:axButton];
     AXRefreshButton();
@@ -304,15 +342,16 @@ static void AXShow(void) {
 
 %hook AWEElementStackView
 - (void)layoutSubviews { %orig; AXApplyScale((UIView *)self); }
+- (NSArray<__kindof UIView *> *)arrangedSubviews { NSArray *r = %orig; AXApplyScale((UIView *)self); return r; }
 %end
 
 %hook UIApplication
 - (void)applicationDidBecomeActive:(UIApplication *)app {
     %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); });
 }
 %end
 
 %ctor {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ AXShow(); AXRefreshAllStacks(); });
 }

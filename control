@@ -1,10 +1,9 @@
-
-Package: com.awemex.minimal
-Name: AwemeX Minimal AX
+Package: com.awemex.v2.settings
+Name: AwemeX V2 AX Settings
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: Minimal AX button test
-Version: 1.0
+Description: Stable AX button with simple settings panel
+Version: 2.0
 Maintainer: test
 Author: test
 Section: Tweaks

@@ -4,6 +4,12 @@
 @interface AWEElementStackView : UIView
 @end
 
+@interface IESLiveStackView : UIView
+@end
+
+@interface AWEPlayInteractionViewController : UIViewController
+@end
+
 static UIButton *axButton;
 static UIView *axPanel;
 static BOOL axApplyingElementEffects = NO;
@@ -59,6 +65,15 @@ static BOOL AXIsAwemeXPanelView(UIView *v) {
     return AXIsDescendantOf(v, axPanel) || AXIsDescendantOf(v, axButton);
 }
 
+static BOOL AXIsElementStackLike(UIView *v) {
+    if (!v) return NO;
+    Class aweStack = NSClassFromString(@"AWEElementStackView");
+    Class iesStack = NSClassFromString(@"IESLiveStackView");
+    if (aweStack && [v isKindOfClass:aweStack]) return YES;
+    if (iesStack && [v isKindOfClass:iesStack]) return YES;
+    NSString *cls = NSStringFromClass(v.class);
+    return [cls containsString:@"AWEElementStackView"] || [cls containsString:@"IESLiveStackView"];
+}
 
 static BOOL AXIsTopAreaView(UIView *v) {
     if (!v || AXIsAwemeXPanelView(v) || !v.superview) return NO;
@@ -125,7 +140,7 @@ static BOOL AXStackHasElementClassName(UIView *container, NSString *targetName) 
 }
 
 static BOOL AXIsRightStack(UIView *v) {
-    if (![v isKindOfClass:NSClassFromString(@"AWEElementStackView")]) return NO;
+    if (!AXIsElementStackLike(v)) return NO;
     if (AXIsAwemeXPanelView(v)) return NO;
 
     UIViewController *vc = AXFirstViewControllerFromView(v);
@@ -142,7 +157,7 @@ static BOOL AXIsRightStack(UIView *v) {
 }
 
 static BOOL AXIsTopStack(UIView *v) {
-    if (![v isKindOfClass:NSClassFromString(@"AWEElementStackView")]) return NO;
+    if (!AXIsElementStackLike(v)) return NO;
     if (AXIsAwemeXPanelView(v)) return NO;
     NSString *label = v.accessibilityLabel ?: @"";
     if ([label isEqualToString:@"top"] || [label isEqualToString:@"center"]) return YES;
@@ -221,7 +236,7 @@ static void AXApplySearchEntranceHide(UIView *v) {
 
 static void AXApplyToSubviews(UIView *view) {
     if (!view) return;
-    if ([view isKindOfClass:NSClassFromString(@"AWEElementStackView")]) {
+    if (AXIsElementStackLike(view)) {
         AXApplyElementEffects(view);
     } else if (([view isKindOfClass:UILabel.class] || [view isKindOfClass:UIButton.class] || [view isKindOfClass:UIImageView.class]) && AXIsTopAreaView(view)) {
         view.alpha = AXFloat(kAXTopAlpha, 0.65);
@@ -320,7 +335,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V14";
+        title.text = @"AwemeX 设置 V15";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -366,7 +381,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
-        note.text = @"V14：修复注入闪退；搜索框改为类名 Hook 隐藏。";
+        note.text = @"V15：按 DYYY 参数补齐 arrangedSubviews / IESLiveStackView / VC 重刷。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
@@ -417,8 +432,24 @@ static void AXShow(void) {
 - (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
 - (void)setFrame:(CGRect)frame { %orig(frame); AXApplyElementEffects((UIView *)self); }
 - (void)setBounds:(CGRect)bounds { %orig(bounds); AXApplyElementEffects((UIView *)self); }
+- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
 %end
 
+%hook IESLiveStackView
+- (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
+- (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
+- (void)setFrame:(CGRect)frame { %orig(frame); AXApplyElementEffects((UIView *)self); }
+- (void)setBounds:(CGRect)bounds { %orig(bounds); AXApplyElementEffects((UIView *)self); }
+- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
+%end
+
+%hook AWEPlayInteractionViewController
+- (void)viewDidLayoutSubviews {
+    %orig;
+    AXRefreshAllStacks();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
+}
+%end
 
 
 

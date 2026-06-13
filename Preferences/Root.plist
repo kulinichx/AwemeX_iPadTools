@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>AwemeX iPad Tools</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>defaults</key>
+			<string>standard</string>
+			<key>key</key>
+			<string>awemex_floatingButton</string>
+			<key>default</key>
+			<true/>
+			<key>label</key>
+			<string>显示 AX 悬浮按钮</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>defaults</key>
+			<string>standard</string>
+			<key>key</key>
+			<string>awemex_hideTopSearch</string>
+			<key>default</key>
+			<false/>
+			<key>label</key>
+			<string>隐藏右上搜索</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>defaults</key>
+			<string>standard</string>
+			<key>key</key>
+			<string>awemex_newLongPressPanel</string>
+			<key>default</key>
+			<true/>
+			<key>label</key>
+			<string>启用新版长按面板</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>defaults</key>
+			<string>standard</string>
+			<key>key</key>
+			<string>awemex_rightScale</string>
+			<key>default</key>
+			<string>1.00</string>
+			<key>label</key>
+			<string>右侧播放面板缩放</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>AwemeX</string>
+</dict>
+</plist>

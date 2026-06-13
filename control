@@ -1,9 +1,9 @@
-Package: com.awemex.v2.settings
-Name: AwemeX V2 AX Settings
+Package: com.awemex.v3.applyalpha
+Name: AwemeX V3 Apply Alpha
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: Stable AX button with simple settings panel
-Version: 2.0
+Description: Stable AX settings panel with safe alpha application
+Version: 3.0
 Maintainer: test
 Author: test
 Section: Tweaks

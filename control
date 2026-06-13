@@ -1,9 +1,9 @@
-Package: com.awemex.v9.rightcontainerscale
-Name: AwemeX V9 RightContainerScale
+Package: com.awemex.v10.dyyyscale
+Name: AwemeX V10 DYYYScale
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: V9 container-level right side button scaling, safer opacity/search controls
-Version: 9.0
+Description: DYYY-style right stack scale; covers right opacity for avatar/like/comment/favorite/share/music
+Version: 10.0
 Maintainer: test
 Author: test
 Section: Tweaks

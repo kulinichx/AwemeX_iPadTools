@@ -1,16 +1,12 @@
-TARGET = iphone:clang:latest:14.0
-ARCHS = arm64
+ARCHS = arm64 arm64e
+TARGET := iphone:clang:latest:13.0
 INSTALL_TARGET_PROCESSES = Aweme
-ifeq ($(SCHEME),rootless)
-    export THEOS_PACKAGE_SCHEME = rootless
-else
-    unexport THEOS_PACKAGE_SCHEME
-endif
+
 include $(THEOS)/makefiles/common.mk
-TWEAK_NAME = AwemeX_AlphaPro
-AwemeX_AlphaPro_FILES = AwemeX_AlphaPro.xm
-AwemeX_AlphaPro_FRAMEWORKS = UIKit Foundation QuartzCore
-AwemeX_AlphaPro_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -w
+
+TWEAK_NAME = AwemeX
+AwemeX_FILES = AwemeX_AlphaPro.xm
+AwemeX_CFLAGS = -fobjc-arc
+AwemeX_FRAMEWORKS = UIKit CoreGraphics QuartzCore
+
 include $(THEOS_MAKE_PATH)/tweak.mk
-clean::
-	@rm -rf .theos packages

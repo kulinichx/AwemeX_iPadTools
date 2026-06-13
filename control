@@ -1,9 +1,9 @@
-Package: com.awemex.v3.applyalpha
-Name: AwemeX V3 Apply Alpha
+Package: com.awemex.v4.scale
+Name: AwemeX V4 Right Panel Scale
 Depends: mobilesubstrate
 Architecture: iphoneos-arm64
-Description: Stable AX settings panel with safe alpha application
-Version: 3.0
+Description: Stable AX settings panel with opacity and right playback panel scale
+Version: 4.0
 Maintainer: test
 Author: test
 Section: Tweaks

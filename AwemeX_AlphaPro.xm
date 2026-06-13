@@ -218,20 +218,25 @@ static BOOL AXIsTopRightSearchView(UIView *v) {
     CGRect f = [v.superview convertRect:v.frame toView:w];
     CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
     CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
-    if (CGRectIsEmpty(f) || f.size.width <= 60 || f.size.height <= 15) return NO;
-    if (f.origin.x < screenW * 0.62) return NO;
-    if (f.origin.y < screenH * 0.015 || f.origin.y > screenH * 0.16) return NO;
-    if (f.size.width > screenW * 0.38 || f.size.height > 72.0) return NO;
+    if (CGRectIsEmpty(f) || f.size.width <= 0 || f.size.height <= 0) return NO;
+
+    // iPad 顶部右上搜索框：通常是右上角横向宽条，类名不一定带 Search，
+    // 所以这里改为“位置 + 尺寸 + 横向比例”识别。
+    if (f.origin.x < screenW * 0.58) return NO;
+    if (f.origin.y < screenH * 0.018 || f.origin.y > screenH * 0.12) return NO;
+    if (f.size.width < screenW * 0.12 || f.size.width > screenW * 0.42) return NO;
+    if (f.size.height < 22.0 || f.size.height > 68.0) return NO;
+    if (f.size.width < f.size.height * 2.0) return NO;
 
     NSString *cls = NSStringFromClass(v.class);
     BOOL looksSearch = ([cls rangeOfString:@"Search" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                        [cls rangeOfString:@"search" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                        [cls rangeOfString:@"Find" options:NSCaseInsensitiveSearch].location != NSNotFound ||
                         AXContainsClassNameSubstring(v, @"Search") ||
+                        AXContainsClassNameSubstring(v, @"Find") ||
                         AXContainsTextInput(v));
-    if (!looksSearch) return NO;
 
-    // 不要隐藏状态栏图标/普通右侧按钮；搜索框通常是横向宽条。
-    return f.size.width > f.size.height * 2.2;
+    // 有些版本搜索框只是普通容器 + label/image，不带搜索类名；宽条位置已经足够准确。
+    return looksSearch || YES;
 }
 
 static void AXApplySearchHide(UIView *v) {
@@ -345,7 +350,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         CGRect b = UIScreen.mainScreen.bounds;
         CGFloat width = MIN(460.0, b.size.width - 90.0);
-        CGFloat height = 520.0;
+        CGFloat height = 500.0;
         axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
         axPanel.backgroundColor = [[UIColor colorWithWhite:0.08 alpha:1.0] colorWithAlphaComponent:0.86];
         axPanel.layer.cornerRadius = 20;
@@ -357,7 +362,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V12";
+        title.text = @"AwemeX 设置 V13";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -389,7 +394,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         NSArray *switchNames = @[@"隐藏右上搜索", @"显示 AX 悬浮按钮"];
         for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 356 + i * 42;
+            CGFloat y = 344 + i * 40;
             UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(30, y, 230, 30)];
             l.text = switchNames[i];
             l.textColor = UIColor.whiteColor;
@@ -402,15 +407,15 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
             [axPanel addSubview:sw];
         }
 
-        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 432, width - 60, 28)];
-        note.text = @"V12：修复右上搜索隐藏；恢复默认按钮上移，保留底部间距。";
+        UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 416, width - 60, 26)];
+        note.text = @"V13：恢复默认按钮再上移；右上搜索改为位置识别隐藏。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
         [axPanel addSubview:note];
 
         UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
-        reset.frame = CGRectMake(50, 466, width - 100, 36);
+        reset.frame = CGRectMake(50, 448, width - 100, 34);
         reset.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
         reset.layer.cornerRadius = 9;
         [reset setTitle:@"恢复默认" forState:UIControlStateNormal];
@@ -420,6 +425,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
 
         AXResetTransformRecursive(axPanel);
         [w bringSubviewToFront:axPanel];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXRefreshAllStacks(); });
     });
 }
 @end

@@ -28,16 +28,33 @@ static void AXSetFloat(NSString *key, CGFloat value) {
 }
 
 static UIWindow *AXKeyWindow(void) {
+    UIApplication *app = UIApplication.sharedApplication;
     if (@available(iOS 13.0, *)) {
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        for (UIScene *scene in app.connectedScenes) {
             if (scene.activationState != UISceneActivationStateForegroundActive) continue;
             if (![scene isKindOfClass:UIWindowScene.class]) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
                 if (window.isKeyWindow) return window;
             }
         }
+        for (UIScene *scene in app.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+            UIWindow *window = ((UIWindowScene *)scene).windows.firstObject;
+            if (window) return window;
+        }
+        return nil;
     }
-    return UIApplication.sharedApplication.keyWindow ?: UIApplication.sharedApplication.windows.firstObject;
+    // 避免 Xcode 16 / iOS 18 SDK 下 keyWindow deprecated 被 -Werror 当成编译错误。
+    UIWindow *legacyKeyWindow = nil;
+    @try {
+        legacyKeyWindow = [app valueForKey:@"keyWindow"];
+    } @catch (__unused NSException *e) {}
+    if (legacyKeyWindow) return legacyKeyWindow;
+    NSArray *legacyWindows = nil;
+    @try {
+        legacyWindows = [app valueForKey:@"windows"];
+    } @catch (__unused NSException *e) {}
+    return legacyWindows.firstObject;
 }
 
 static UIViewController *AXTopVC(void) {

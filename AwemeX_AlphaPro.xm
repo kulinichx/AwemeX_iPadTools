@@ -1,17 +1,11 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 
 @interface AWEElementStackView : UIView
 @end
 
-extern id objc_msgSend(id self, SEL op, ...);
 
 static UIButton *axButton;
-static BOOL axInited = NO;
-
-static void AXEnsureButton(void);
-
 static UIWindow *AXKeyWindow(void) {
     UIApplication *app = UIApplication.sharedApplication;
     if (@available(iOS 13.0, *)) {

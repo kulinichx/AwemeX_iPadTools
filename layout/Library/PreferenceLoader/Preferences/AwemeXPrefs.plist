@@ -1,1 +1,9 @@
-
+{
+    entry = {
+        bundle = AwemeXPrefs;
+        cell = PSLinkCell;
+        icon = "";
+        isController = 1;
+        label = "AwemeX";
+    };
+}

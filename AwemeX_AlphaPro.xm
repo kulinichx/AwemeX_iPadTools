@@ -13,6 +13,7 @@
 
 static UIButton *axButton;
 static UIView *axPanel;
+static UIView *axofPanel = nil;
 static BOOL axApplyingElementEffects = NO;
 static UILongPressGestureRecognizer *axTwoFingerLongPressGesture = nil;
 static UIWindow *axTwoFingerLongPressWindow = nil;
@@ -89,7 +90,7 @@ static BOOL AXIsDescendantOf(UIView *v, UIView *ancestor) {
 }
 
 static BOOL AXIsAwemeXPanelView(UIView *v) {
-    return AXIsDescendantOf(v, axPanel) || AXIsDescendantOf(v, axButton);
+    return AXIsDescendantOf(v, axPanel) || AXIsDescendantOf(v, axButton) || AXIsDescendantOf(v, axofPanel);
 }
 
 static BOOL AXIsElementStackLike(UIView *v) {
@@ -524,6 +525,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         CGFloat width = MIN(460.0, b.size.width - 90.0);
         CGFloat height = MIN(620.0, b.size.height - 90.0);
         axPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
+        axPanel.tag = 42029;
         axPanel.backgroundColor = [[UIColor colorWithWhite:0.08 alpha:1.0] colorWithAlphaComponent:0.86];
         axPanel.layer.cornerRadius = 20;
         axPanel.clipsToBounds = YES;
@@ -534,7 +536,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         [w bringSubviewToFront:axPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, width, 28)];
-        title.text = @"AwemeX 设置 V20";
+        title.text = @"AwemeX 设置 V28";
         title.textColor = UIColor.whiteColor;
         title.font = [UIFont boldSystemFontOfSize:18];
         title.textAlignment = NSTextAlignmentCenter;
@@ -581,7 +583,7 @@ static UILabel *AXLabel(NSString *text, CGFloat value, CGRect frame, CGFloat pan
         }
 
         UILabel *note = [[UILabel alloc] initWithFrame:CGRectMake(30, 532, width - 60, 26)];
-        note.text = @"V20：新增全局透明和昵称文案缩放；开关区重新排版。";
+        note.text = @"V29：参考 DYYY 透明度值守；文案/相关搜索使用独立面板。";
         note.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65];
         note.font = [UIFont systemFontOfSize:12];
         note.numberOfLines = 2;
@@ -671,8 +673,9 @@ static NSString * const kAXOFNicknameDescAlpha = @"ax_nickname_desc_alpha";
 static NSString * const kAXOFRelatedSearchAlpha = @"ax_related_search_alpha";
 static char kAXOFBaseAlphaKey;
 static char kAXOFSettingsAddedKey;
-static UIView *axofPanel = nil;
-
+static char kAXOFRelatedContainerKey;
+static char kAXOFTargetKindKey; // 1 = nickname/desc, 2 = related search
+static BOOL axofApplyingAlpha = NO;
 static CGFloat AXOF_Clamp(CGFloat v) { return MIN(MAX(v, 0.0), 1.0); }
 
 static CGFloat AXOF_Float(NSString *key, CGFloat def) {
@@ -720,22 +723,60 @@ static NSString *AXOF_ViewText(UIView *v) {
 }
 
 static BOOL AXOF_IsAwemeXOwnView(UIView *v) {
+    if (!v) return NO;
+    // 先排除 AwemeX 自己的所有面板，避免“昵称/文案透明度”误伤设置页文字。
+    UIView *cur = v;
+    while (cur) {
+        if (cur == axPanel || cur == axButton || cur == axofPanel) return YES;
+        if (cur.tag == 42029 || cur.tag == 42030) return YES;
+        cur = cur.superview;
+    }
     UIResponder *r = v;
     while (r) {
         NSString *name = NSStringFromClass(r.class);
         if ([name containsString:@"AXMenuTarget"] || [name containsString:@"AXOFSettingsTarget"]) return YES;
         if ([r isKindOfClass:UILabel.class]) {
             NSString *t = ((UILabel *)r).text ?: @"";
-            if ([t containsString:@"AwemeX 设置"] || [t containsString:@"透明度增强"]) return YES;
+            if ([t containsString:@"AwemeX 设置"] || [t containsString:@"文案 / 相关搜索"] || [t containsString:@"透明度"]) return YES;
         }
-        if ([r isKindOfClass:UIView.class]) r = ((UIView *)r).superview;
-        else r = r.nextResponder;
+        r = r.nextResponder;
     }
     return NO;
 }
 
+
+static BOOL AXOF_HasMarkedRelatedSearchAncestor(UIView *v) {
+    UIView *cur = v;
+    while (cur) {
+        NSNumber *marked = objc_getAssociatedObject(cur, &kAXOFRelatedContainerKey);
+        if (marked.boolValue) return YES;
+        cur = cur.superview;
+    }
+    return NO;
+}
+
+static UIView *AXOF_FindRelatedSearchContainer(UIView *v) {
+    if (!v) return nil;
+    CGSize s = UIScreen.mainScreen.bounds.size;
+    UIView *cur = v;
+    UIView *best = v;
+    NSInteger depth = 0;
+    while (cur && depth < 7) {
+        CGRect f = AXOF_WindowFrame(cur);
+        if (!CGRectIsEmpty(f) && f.origin.y > s.height * 0.42 && f.origin.y < s.height * 0.78 &&
+            f.origin.x < s.width * 0.25 && f.size.width > s.width * 0.35 &&
+            f.size.height > 22.0 && f.size.height < 120.0) {
+            best = cur;
+        }
+        cur = cur.superview;
+        depth++;
+    }
+    return best;
+}
+
 static BOOL AXOF_IsRelatedSearchView(UIView *v) {
     if (!v || !v.superview || AXOF_IsAwemeXOwnView(v)) return NO;
+    if (AXOF_HasMarkedRelatedSearchAncestor(v)) return YES;
     NSString *cls = NSStringFromClass(v.class);
     NSString *txt = AXOF_ViewText(v);
     if ([txt containsString:@"相关搜索"] || ([txt containsString:@"搜索"] && txt.length <= 28)) return YES;
@@ -777,26 +818,47 @@ static BOOL AXOF_IsNicknameDescView(UIView *v) {
     return leftOrCenterTextArea && txt.length > 0;
 }
 
-static void AXOF_ApplyAlpha(UIView *v, CGFloat alpha) {
-    if (!v) return;
+static void AXOF_ApplyAlphaKind(UIView *v, CGFloat alpha, NSInteger kind) {
+    if (!v || AXOF_IsAwemeXOwnView(v)) return;
     alpha = AXOF_Clamp(alpha);
+    objc_setAssociatedObject(v, &kAXOFTargetKindKey, @(kind), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSNumber *base = objc_getAssociatedObject(v, &kAXOFBaseAlphaKey);
     CGFloat baseAlpha = base ? base.floatValue : v.alpha;
     if (!base) objc_setAssociatedObject(v, &kAXOFBaseAlphaKey, @(baseAlpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     CGFloat finalAlpha = AXOF_Clamp(baseAlpha * alpha);
-    if (fabs(v.alpha - finalAlpha) > 0.001) v.alpha = finalAlpha;
+    if (fabs(v.alpha - finalAlpha) > 0.001) {
+        axofApplyingAlpha = YES;
+        v.alpha = finalAlpha;
+        axofApplyingAlpha = NO;
+    }
+}
+
+static void AXOF_ReapplyMarkedView(UIView *v) {
+    if (!v || AXOF_IsAwemeXOwnView(v)) return;
+    NSNumber *kindNum = objc_getAssociatedObject(v, &kAXOFTargetKindKey);
+    NSInteger kind = kindNum.integerValue;
+    if (kind == 1) AXOF_ApplyAlphaKind(v, AXOF_Float(kAXOFNicknameDescAlpha, 1.00), 1);
+    else if (kind == 2) AXOF_ApplyAlphaKind(v, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55), 2);
 }
 
 static void AXOF_ApplyView(UIView *v) {
-    if (!v) return;
+    if (!v || AXOF_IsAwemeXOwnView(v)) return;
     if (AXOF_IsRelatedSearchView(v)) {
-        AXOF_ApplyAlpha(v, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55));
+        UIView *container = AXOF_FindRelatedSearchContainer(v) ?: v;
+        if (!AXOF_IsAwemeXOwnView(container)) {
+            objc_setAssociatedObject(container, &kAXOFRelatedContainerKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            AXOF_ApplyAlphaKind(container, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55), 2);
+            // DYYY 思路：iPad 切视频/重排后 alpha 常被宿主重置，所以延迟再值守两次。
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView(container); });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView(container); });
+        }
         return;
     }
     if (AXOF_IsNicknameDescView(v)) {
-        AXOF_ApplyAlpha(v, AXOF_Float(kAXOFNicknameDescAlpha, 1.00));
+        AXOF_ApplyAlphaKind(v, AXOF_Float(kAXOFNicknameDescAlpha, 1.00), 1);
         return;
     }
+    AXOF_ReapplyMarkedView(v);
 }
 
 static void AXOF_RefreshRecursive(UIView *v) {
@@ -849,9 +911,10 @@ static void AXOF_RefreshAll(void) {
         if (!w) return;
         if (axofPanel) { [self closeOpacityPanel]; return; }
         CGRect b = UIScreen.mainScreen.bounds;
-        CGFloat width = MIN(430.0, b.size.width - 80.0);
-        CGFloat height = 230.0;
+        CGFloat width = MIN(340.0, b.size.width - 120.0);
+        CGFloat height = MIN(520.0, b.size.height - 80.0);
         axofPanel = [[UIView alloc] initWithFrame:CGRectMake((b.size.width - width) / 2.0, (b.size.height - height) / 2.0, width, height)];
+        axofPanel.tag = 42030;
         axofPanel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.86];
         axofPanel.layer.cornerRadius = 18;
         axofPanel.clipsToBounds = YES;
@@ -859,7 +922,7 @@ static void AXOF_RefreshAll(void) {
         [w addSubview:axofPanel];
 
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 18, width, 26)];
-        title.text = @"透明度增强";
+        title.text = @"透明度";
         title.textColor = UIColor.whiteColor;
         title.textAlignment = NSTextAlignmentCenter;
         title.font = [UIFont boldSystemFontOfSize:17];
@@ -877,7 +940,12 @@ static void AXOF_RefreshAll(void) {
         NSArray *keys = @[kAXOFNicknameDescAlpha, kAXOFRelatedSearchAlpha];
         NSArray *defs = @[@1.00, @0.55];
         for (NSInteger i = 0; i < 2; i++) {
-            CGFloat y = 62 + i * 72;
+            CGFloat y = 72 + i * 112;
+            UIView *card = [[UIView alloc] initWithFrame:CGRectMake(24, y - 10, width - 48, 88)];
+            card.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.13];
+            card.layer.cornerRadius = 13;
+            card.tag = 42030;
+            [axofPanel addSubview:card];
             UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(28, y, width - 150, 24)];
             l.text = names[i];
             l.textColor = UIColor.whiteColor;
@@ -901,6 +969,13 @@ static void AXOF_RefreshAll(void) {
             [s addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
             [axofPanel addSubview:s];
         }
+
+        UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(28, height - 78, width - 56, 58)];
+        tip.text = @"V29：参考 DYYY 的延迟值守方式；切换视频后会自动补套透明度。";
+        tip.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.62];
+        tip.font = [UIFont systemFontOfSize:11];
+        tip.numberOfLines = 2;
+        [axofPanel addSubview:tip];
     });
 }
 @end
@@ -948,9 +1023,19 @@ static void AXOF_AddSettingsEntryButton(void) {
 %hook UIView
 - (void)layoutSubviews {
     %orig;
-    NSString *cls = NSStringFromClass(self.class);
-    if ([cls containsString:@"RelatedSearch"] || [cls containsString:@"SearchEntrance"] || [cls containsString:@"FeedSearch"]) {
-        AXOF_ApplyAlpha((UIView *)self, AXOF_Float(kAXOFRelatedSearchAlpha, 0.55));
+    AXOF_ApplyView((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXOF_ApplyView((UIView *)self);
+}
+- (void)setAlpha:(CGFloat)alpha {
+    %orig(alpha);
+    if (!axofApplyingAlpha && !AXOF_IsAwemeXOwnView((UIView *)self)) {
+        NSNumber *kind = objc_getAssociatedObject((UIView *)self, &kAXOFTargetKindKey);
+        if (kind.integerValue > 0) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ AXOF_ReapplyMarkedView((UIView *)self); });
+        }
     }
 }
 %end

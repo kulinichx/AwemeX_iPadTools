@@ -16,6 +16,7 @@
 // scaling preference/limits and avoids the AlphaPro-wide UIView layout fallback.
 
 // Intentionally avoids private SDK headers. Theos can link this as a normal dylib.
+#include <dispatch/dispatch.h>
 
 
 typedef unsigned char BOOL;

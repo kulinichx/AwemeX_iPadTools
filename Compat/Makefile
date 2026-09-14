@@ -6,7 +6,7 @@ include $(THEOS)/makefiles/common.mk
 
 LIBRARY_NAME := AwemeX_iPadCompat
 AwemeX_iPadCompat_FILES := AwemeX_iPadCompat.c
-AwemeX_iPadCompat_CFLAGS := -O2 -fvisibility=hidden -Wall -Wextra -Wno-cast-function-type-mismatch
+AwemeX_iPadCompat_CFLAGS := -O2 -fvisibility=hidden -Wall -Wextra -Wno-cast-function-type-mismatch -fno-autolink
 AwemeX_iPadCompat_LDFLAGS := -Wl,-install_name,@loader_path/AwemeX_iPadCompat.dylib -lobjc
 
 include $(THEOS_MAKE_PATH)/library.mk

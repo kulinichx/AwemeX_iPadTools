@@ -149,6 +149,20 @@ static void enforceHiddenView(id view) {
     }
 }
 
+// AwemeX 2.6.2 search-hide semantics on iPad:
+// hide the rendering only; keep the UIView and its hit target intact.
+static void applyInvisibleClickableSearch(id view, BOOL invisible) {
+    if (!view) return;
+
+    id layer = ((id (*)(id, SEL))objc_msgSend)(
+        view, sel_registerName("layer"));
+    if (!layer) return;
+
+    ((void (*)(id, SEL, float))objc_msgSend)(
+        layer, sel_registerName("setOpacity:"),
+        invisible ? 0.0f : 1.0f);
+}
+
 static IMP findOriginal(id self, SEL sel, IMP replacement) {
     Class c = object_getClass(self);
     while (c) {
@@ -487,7 +501,7 @@ static BOOL installRightStackClass(const char *className) {
 static void compatSearchVoidHook(id self, SEL _cmd) {
     IMP original = findOriginal(self, _cmd, (IMP)compatSearchVoidHook);
     if (original) ((void (*)(id, SEL))original)(self, _cmd);
-    if (shouldHideSearch()) enforceHiddenView(self);
+    applyInvisibleClickableSearch(self, shouldHideSearch());
 }
 
 static id compatSidebarViewHook(id self, SEL _cmd) {

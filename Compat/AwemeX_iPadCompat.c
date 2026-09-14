@@ -17,7 +17,6 @@
 
 // Intentionally avoids private SDK headers. Theos can link this as a normal dylib.
 
-#include <dispatch/dispatch.h>
 
 typedef unsigned char BOOL;
 typedef unsigned long NSUInteger;

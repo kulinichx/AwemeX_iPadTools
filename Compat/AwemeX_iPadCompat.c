@@ -17,6 +17,7 @@
 
 // Intentionally avoids private SDK headers. Theos can link this as a normal dylib.
 #include <dispatch/dispatch.h>
+#include <CoreGraphics/CGAffineTransform.h>
 
 
 typedef unsigned char BOOL;
@@ -220,11 +221,17 @@ static BOOL hookMethod(Class cls, SEL sel, IMP replacement) {
 // -------- Targeted right-side scaling bridge --------
 // Static analysis of AwemeX 2.6.2 found its own helper selector
 // `awe_applySafeScaling`. That method computes/clamps its scale from AwemeX's
-// own configuration and applies a transform. AlphaPro's broad UIView fallback
-// was added because the iPad stack views can miss the original timing/path.
+// own configuration and applies a transform.
 //
-// We therefore do not read ax_scale and do not reproduce the scaling math.
-// We only re-trigger AwemeX's own helper on two concrete iPad stack classes.
+// Important: `awe_applySafeScaling` must not be called from every layout pass.
+// On iPad, repeated layout callbacks can otherwise compound the current
+// transform and make a small slider adjustment look dramatically smaller.
+//
+// The bridge therefore has two narrow triggers only:
+//   1. didMoveToWindow: apply once when the stack enters a window.
+//   2. setTransform:: if the app resets the stack back to unit scale, re-apply.
+//
+// We still do not read AwemeX's scale preference or duplicate its scale math.
 
 static BOOL objectResponds(id obj, const char *selectorName) {
     if (!obj || !selectorName) return 0;
@@ -239,16 +246,12 @@ static id sendId0(id obj, const char *selectorName) {
     return ((id (*)(id, SEL))objc_msgSend)(obj, sel);
 }
 
-static BOOL invokeAwemeXSafeScaling(id view) {
-    if (!view) return 0;
+static id findAwemeXSafeScalingTarget(id view) {
+    if (!view) return NULL;
     const char *safeSelName = "awe_applySafeScaling";
-    SEL safeSel = sel_registerName(safeSelName);
 
     // Preferred path: AwemeX attached the helper directly to this concrete view.
-    if (objectResponds(view, safeSelName)) {
-        ((void (*)(id, SEL))objc_msgSend)(view, safeSel);
-        return 1;
-    }
+    if (objectResponds(view, safeSelName)) return view;
 
     // Conservative fallback: a small superview walk only. Do not scan the whole
     // hierarchy and do not walk all live UIViews as AlphaPro's global fallback did.
@@ -256,32 +259,87 @@ static BOOL invokeAwemeXSafeScaling(id view) {
     for (int depth = 0; depth < 4; depth++) {
         node = sendId0(node, "superview");
         if (!node) break;
-        if (objectResponds(node, safeSelName)) {
-            ((void (*)(id, SEL))objc_msgSend)(node, safeSel);
-            return 1;
-        }
+        if (objectResponds(node, safeSelName)) return node;
     }
-    return 0;
+    return NULL;
 }
 
-static void compatRightStackLayoutHook(id self, SEL _cmd) {
-    IMP original = findOriginal(self, _cmd, (IMP)compatRightStackLayoutHook);
+// UI transform updates are main-thread work in this probe. This guard prevents
+// synchronous recursion when awe_applySafeScaling itself calls setTransform:.
+static BOOL gApplyingSafeScaling = 0;
+
+static BOOL readTransform(id view, CGAffineTransform *outTransform) {
+    if (!view || !outTransform || !objectResponds(view, "transform")) return 0;
+    SEL transformSel = sel_registerName("transform");
+    *outTransform =
+        ((CGAffineTransform (*)(id, SEL))objc_msgSend)(view, transformSel);
+    return 1;
+}
+
+static BOOL transformHasUnitScale(CGAffineTransform t) {
+    // Ignore translation and rotation. We only care whether the two basis
+    // vectors still have unit length, i.e. no scale has been applied yet.
+    double sx2 = (double)t.a * (double)t.a + (double)t.b * (double)t.b;
+    double sy2 = (double)t.c * (double)t.c + (double)t.d * (double)t.d;
+    return sx2 > 0.999 && sx2 < 1.001 &&
+           sy2 > 0.999 && sy2 < 1.001;
+}
+
+static BOOL applyAwemeXSafeScalingIfNeeded(id view) {
+    if (!view || gApplyingSafeScaling) return 0;
+
+    id target = findAwemeXSafeScalingTarget(view);
+    if (!target) return 0;
+
+    // If the target is already scaled, do not call the helper again. This is
+    // what makes the bridge idempotent across repeated lifecycle callbacks.
+    CGAffineTransform current;
+    if (readTransform(target, &current) && !transformHasUnitScale(current)) {
+        return 1;
+    }
+
+    gApplyingSafeScaling = 1;
+    ((void (*)(id, SEL))objc_msgSend)(
+        target, sel_registerName("awe_applySafeScaling"));
+    gApplyingSafeScaling = 0;
+    return 1;
+}
+
+static void compatRightStackDidMoveHook(id self, SEL _cmd) {
+    IMP original = findOriginal(self, _cmd, (IMP)compatRightStackDidMoveHook);
     if (original) ((void (*)(id, SEL))original)(self, _cmd);
 
-    // Intentionally specific to two stack classes. Calling AwemeX's existing
-    // helper is idempotent from our side: we do not set frame/transform directly.
-    invokeAwemeXSafeScaling(self);
+    // Only apply while attached. A detached stack has no visible transform to fix.
+    if (sendId0(self, "window")) {
+        applyAwemeXSafeScalingIfNeeded(self);
+    }
+}
+
+static void compatRightStackSetTransformHook(
+    id self, SEL _cmd, CGAffineTransform transform) {
+    IMP original =
+        findOriginal(self, _cmd, (IMP)compatRightStackSetTransformHook);
+    if (original) {
+        ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, transform);
+    }
+
+    if (gApplyingSafeScaling) return;
+
+    // AwemeX/system relayouts can reset the stack to identity. Re-apply only
+    // for that reset case; never re-apply on an already scaled transform.
+    if (transformHasUnitScale(transform)) {
+        applyAwemeXSafeScalingIfNeeded(self);
+    }
 }
 
 static BOOL installRightStackClass(const char *className) {
     Class cls = objc_getClass(className);
     if (!cls) return 0;
 
-    // layoutSubviews is kept only on these two classes because AlphaPro's iPad
-    // workaround indicates the right-side transform can be reset during feed
-    // relayout. There is deliberately no UIView-wide hook.
-    BOOL a = hookMethod(cls, sel_registerName("layoutSubviews"), (IMP)compatRightStackLayoutHook);
-    BOOL b = hookMethod(cls, sel_registerName("didMoveToWindow"), (IMP)compatRightStackLayoutHook);
+    BOOL a = hookMethod(cls, sel_registerName("didMoveToWindow"),
+                        (IMP)compatRightStackDidMoveHook);
+    BOOL b = hookMethod(cls, sel_registerName("setTransform:"),
+                        (IMP)compatRightStackSetTransformHook);
     return a || b;
 }
 

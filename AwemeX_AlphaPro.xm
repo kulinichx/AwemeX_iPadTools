@@ -1131,9 +1131,19 @@ static void AXOF_RefreshAll(void) {
 // 避免评论页、分享页、ActionSheet 这类复杂弹层被误伤为空白。
 
 %hook AWEElementStackView
-- (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
-- (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
-- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
+- (void)layoutSubviews {
+    %orig;
+    AXApplyElementEffects((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXApplyElementEffects((UIView *)self);
+}
+- (NSArray *)arrangedSubviews {
+    NSArray *r = %orig;
+    AXApplyElementEffects((UIView *)self);
+    return r;
+}
 - (void)setTransform:(CGAffineTransform)transform {
     if (!axApplyingElementEffects && AXIsRightStack((UIView *)self)) {
         CGAffineTransform target = AXRightStackTargetTransform((UIView *)self);
@@ -1150,9 +1160,19 @@ static void AXOF_RefreshAll(void) {
 %end
 
 %hook IESLiveStackView
-- (void)layoutSubviews { %orig; AXApplyElementEffects((UIView *)self); }
-- (void)didMoveToWindow { %orig; AXApplyElementEffects((UIView *)self); }
-- (NSArray *)arrangedSubviews { NSArray *r = %orig; AXApplyElementEffects((UIView *)self); return r; }
+- (void)layoutSubviews {
+    %orig;
+    AXApplyElementEffects((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXApplyElementEffects((UIView *)self);
+}
+- (NSArray *)arrangedSubviews {
+    NSArray *r = %orig;
+    AXApplyElementEffects((UIView *)self);
+    return r;
+}
 - (void)setTransform:(CGAffineTransform)transform {
     if (!axApplyingElementEffects && AXIsRightStack((UIView *)self)) {
         CGAffineTransform target = AXRightStackTargetTransform((UIView *)self);
@@ -1169,13 +1189,25 @@ static void AXOF_RefreshAll(void) {
 %end
 
 %hook AWESearchEntranceView
-- (void)layoutSubviews { %orig; AXApplySearchEntranceHide((UIView *)self); }
-- (void)didMoveToWindow { %orig; AXApplySearchEntranceHide((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    AXApplySearchEntranceHide((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXApplySearchEntranceHide((UIView *)self);
+}
 %end
 
 %hook AWEHPDiscoverFeedEntranceView
-- (void)layoutSubviews { %orig; AXApplySearchEntranceHide((UIView *)self); }
-- (void)didMoveToWindow { %orig; AXApplySearchEntranceHide((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    AXApplySearchEntranceHide((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    AXApplySearchEntranceHide((UIView *)self);
+}
 %end
 
 %hook UILabel

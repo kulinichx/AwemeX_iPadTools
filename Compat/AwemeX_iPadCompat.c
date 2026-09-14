@@ -17,16 +17,15 @@
 
 // Intentionally avoids private SDK headers. Theos can link this as a normal dylib.
 
+#include <dispatch/dispatch.h>
+
 typedef unsigned char BOOL;
 typedef unsigned long NSUInteger;
-typedef unsigned long long uint64_t;
 typedef struct objc_object *id;
 typedef struct objc_class *Class;
 typedef struct objc_selector *SEL;
 typedef struct objc_method *Method;
 typedef void (*IMP)(void);
-typedef void *dispatch_queue_t;
-typedef uint64_t dispatch_time_t;
 
 #ifndef NULL
 #define NULL ((void *)0)
@@ -52,13 +51,6 @@ extern void objc_release(id value);
 extern void *malloc(unsigned long size);
 extern void free(void *ptr);
 
-extern dispatch_queue_t dispatch_get_main_queue(void);
-extern void dispatch_async_f(dispatch_queue_t queue, void *context, void (*work)(void *));
-extern dispatch_time_t dispatch_time(dispatch_time_t when, long long delta);
-extern void dispatch_after_f(dispatch_time_t when, dispatch_queue_t queue, void *context, void (*work)(void *));
-
-#define DISPATCH_TIME_NOW ((dispatch_time_t)0)
-#define NSEC_PER_SEC 1000000000LL
 #define MAX_HOOKS 64
 #define OBJC_ASSOCIATION_RETAIN_NONATOMIC 1UL
 

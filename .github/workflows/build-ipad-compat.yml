@@ -35,6 +35,14 @@ jobs:
           find "$RUNNER_TEMP/theos-sdks" -maxdepth 1 -type d -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \;
           ls -la "$THEOS/sdks"
 
+      - name: Install ldid
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew install ldid
+          command -v ldid
+          brew list --versions ldid
+
       - name: Build arm64 + arm64e dylib
         shell: bash
         run: |

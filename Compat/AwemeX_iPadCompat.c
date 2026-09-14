@@ -285,6 +285,94 @@ static BOOL transformHasUnitScale(CGAffineTransform t) {
            sy2 > 0.999 && sy2 < 1.001;
 }
 
+// Restrict iPad scaling compatibility to the actual right interaction stack.
+// AWEElementStackView / IESLiveStackView are also used for left/top/other
+// overlays, so class identity alone is not sufficient.
+static BOOL compatStringEqualsUTF8(id stringObject, const char *utf8) {
+    if (!stringObject || !utf8) return 0;
+    id other = makeNSString(utf8);
+    if (!other) return 0;
+    return ((BOOL (*)(id, SEL, id))objc_msgSend)(
+        stringObject, sel_registerName("isEqualToString:"), other);
+}
+
+static BOOL compatIsKindOfClassName(id object, const char *className) {
+    if (!object || !className) return 0;
+    Class cls = objc_getClass(className);
+    if (!cls) return 0;
+    return ((BOOL (*)(id, SEL, Class))objc_msgSend)(
+        object, sel_registerName("isKindOfClass:"), cls);
+}
+
+static BOOL compatContainsSubviewOfClassName(
+    id container, const char *className) {
+    if (!container || !className) return 0;
+
+    id subviews = sendId0(container, "subviews");
+    if (!subviews) return 0;
+
+    NSUInteger count =
+        ((NSUInteger (*)(id, SEL))objc_msgSend)(
+            subviews, sel_registerName("count"));
+
+    for (NSUInteger i = 0; i < count; i++) {
+        id sub =
+            ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
+                subviews, sel_registerName("objectAtIndex:"), i);
+        if (!sub) continue;
+
+        if (compatIsKindOfClassName(sub, className)) return 1;
+        if (compatContainsSubviewOfClassName(sub, className)) return 1;
+    }
+    return 0;
+}
+
+static BOOL compatStackHasElementClassName(
+    id container, const char *targetName) {
+    if (!container || !targetName) return 0;
+
+    id subviews = sendId0(container, "subviews");
+    if (!subviews) return 0;
+
+    NSUInteger count =
+        ((NSUInteger (*)(id, SEL))objc_msgSend)(
+            subviews, sel_registerName("count"));
+
+    for (NSUInteger i = 0; i < count; i++) {
+        id sub =
+            ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
+                subviews, sel_registerName("objectAtIndex:"), i);
+        if (!sub) continue;
+
+        if (objectResponds(sub, "elementClassName")) {
+            id name = sendId0(sub, "elementClassName");
+            if (compatStringEqualsUTF8(name, targetName)) return 1;
+        }
+
+        if (compatStackHasElementClassName(sub, targetName)) return 1;
+    }
+    return 0;
+}
+
+static BOOL isRightStackCompat(id view) {
+    if (!view) return 0;
+
+    id label = sendId0(view, "accessibilityLabel");
+    if (compatStringEqualsUTF8(label, "right")) return 1;
+
+    if (compatContainsSubviewOfClassName(
+            view, "AWEPlayInteractionUserAvatarView")) {
+        return 1;
+    }
+
+    if (compatStackHasElementClassName(
+            view, "AWEPlayInteractionUserAvatarOptElementElement")) {
+        return 1;
+    }
+
+    return 0;
+}
+
 // iPad's right-side controls are visually much more sensitive to the same
 // transform used by the phone layout. Keep AwemeX's preference semantics, but
 // attenuate only the amount of shrink by 50%. Examples:
@@ -292,9 +380,13 @@ static BOOL transformHasUnitScale(CGAffineTransform t) {
 //   0.80 requested -> 0.90 effective
 //   0.70 requested -> 0.85 effective
 // Identity and non-simple transforms pass through unchanged.
-static CGAffineTransform softenRightStackTransform(CGAffineTransform t) {
+static CGAffineTransform softenRightStackTransform(
+    id view, CGAffineTransform t) {
     const double strength = 0.50;
     const double epsilon = 0.001;
+
+    // Left/top/unknown stacks must retain their original transform.
+    if (!isRightStackCompat(view)) return t;
 
     // The observed right-stack helper emits a simple axis-aligned scale plus
     // translation. Do not rewrite rotations/shears or expanding transforms.
@@ -317,6 +409,7 @@ static CGAffineTransform softenRightStackTransform(CGAffineTransform t) {
 
 static BOOL applyAwemeXSafeScalingIfNeeded(id view) {
     if (!view || gApplyingSafeScaling) return 0;
+    if (!isRightStackCompat(view)) return 0;
 
     id target = findAwemeXSafeScalingTarget(view);
     if (!target) return 0;
@@ -350,7 +443,8 @@ static void compatRightStackSetTransformHook(
     IMP original =
         findOriginal(self, _cmd, (IMP)compatRightStackSetTransformHook);
 
-    CGAffineTransform effective = softenRightStackTransform(transform);
+    CGAffineTransform effective =
+        softenRightStackTransform(self, transform);
     if (original) {
         ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, effective);
     }

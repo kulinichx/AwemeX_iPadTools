@@ -152,7 +152,7 @@ static void enforceHiddenView(id view) {
 // AwemeX 2.6.2 search-hide semantics on iPad:
 // hide the rendering only; keep the UIView and its hit target intact.
 static void applyInvisibleClickableSearch(id view, BOOL invisible) {
-    if (!view) return;
+    if (!view || !invisible) return;
 
     id layer = ((id (*)(id, SEL))objc_msgSend)(
         view, sel_registerName("layer"));
@@ -160,7 +160,7 @@ static void applyInvisibleClickableSearch(id view, BOOL invisible) {
 
     ((void (*)(id, SEL, float))objc_msgSend)(
         layer, sel_registerName("setOpacity:"),
-        invisible ? 0.0f : 1.0f);
+        0.0f);
 }
 
 static IMP findOriginal(id self, SEL sel, IMP replacement) {
@@ -441,7 +441,9 @@ static BOOL applyAwemeXSafeScalingIfNeeded(id view) {
     if (!isRightStackCompat(view)) return 0;
 
     id target = findAwemeXSafeScalingTarget(view);
-    if (!target) return 0;
+    // Do not scale an outer parent after the right stack has already been
+    // normalized by compatRightStackSetTransformHook.
+    if (!target || target != view) return 0;
 
     // If the target is already scaled, do not call the helper again. This is
     // what makes the bridge idempotent across repeated lifecycle callbacks.

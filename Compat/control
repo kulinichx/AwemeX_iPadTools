@@ -1,0 +1,8 @@
+Package: com.kulinichx.awemex.ipadcompat.probe
+Name: AwemeX iPadCompat v0.3 Probe
+Version: 0.3.0~probe1
+Architecture: iphoneos-arm64
+Description: Diagnostic iPad compatibility layer for AwemeX 2.6.2. Separate TrollFools injection only; do not install as the final merged build.
+Maintainer: kulinichx
+Author: kulinichx
+Section: Tweaks

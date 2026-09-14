@@ -1,0 +1,90 @@
+name: Build AwemeX iPadCompat Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Compat/**'
+      - '.github/workflows/build-ipad-compat.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Source invariants
+        run: python3 Compat/verify_source_invariants.py
+
+      - name: Setup Theos and SDKs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          THEOS="$HOME/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          git clone --recursive --depth=1 https://github.com/theos/theos.git "$THEOS"
+          git clone --depth=1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos-sdks"
+          mkdir -p "$THEOS/sdks"
+          find "$RUNNER_TEMP/theos-sdks" -maxdepth 1 -type d -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \;
+          ls -la "$THEOS/sdks"
+
+      - name: Build arm64 + arm64e dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make -C Compat clean
+          make -C Compat FINALPACKAGE=1
+
+      - name: Verify binary and stage artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          DYLIB="$(find Compat/.theos -type f -name 'AwemeX_iPadCompat.dylib' -print | head -n 1)"
+          test -n "$DYLIB"
+          mkdir -p artifact
+          cp "$DYLIB" artifact/AwemeX_iPadCompat.dylib
+          cp Compat/AwemeX_iPadCompat.plist artifact/AwemeX_iPadCompat.plist
+
+          LIPO_INFO="$(lipo -info artifact/AwemeX_iPadCompat.dylib)"
+          echo "$LIPO_INFO"
+          echo "$LIPO_INFO" | grep -q 'arm64'
+          echo "$LIPO_INFO" | grep -q 'arm64e'
+
+          INSTALL_NAME="$(otool -D artifact/AwemeX_iPadCompat.dylib | tail -n +2 | head -n 1 | xargs)"
+          test "$INSTALL_NAME" = '@loader_path/AwemeX_iPadCompat.dylib'
+
+          python3 Compat/make_test_deb.py \
+            --dylib artifact/AwemeX_iPadCompat.dylib \
+            --plist Compat/AwemeX_iPadCompat.plist \
+            --control Compat/control \
+            --output artifact/AwemeX-iPadCompat-v0.3-probe.deb
+
+          {
+            echo "AwemeX iPadCompat v0.3 probe"
+            echo "Commit: $GITHUB_SHA"
+            echo "Runner: $RUNNER_OS"
+            echo "Lipo: $LIPO_INFO"
+            echo "InstallName: $INSTALL_NAME"
+            echo "Mode: separate TrollFools injection; NO weak-load patch"
+            echo
+            echo "SHA256:"
+            shasum -a 256 artifact/AwemeX_iPadCompat.dylib
+            shasum -a 256 artifact/AwemeX_iPadCompat.plist
+            shasum -a 256 artifact/AwemeX-iPadCompat-v0.3-probe.deb
+          } > artifact/BUILD-RECEIPT.txt
+          cat artifact/BUILD-RECEIPT.txt
+
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AwemeX-iPadCompat-v0.3-probe-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14

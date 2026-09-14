@@ -375,15 +375,16 @@ static BOOL isRightStackCompat(id view) {
 
 // iPad's right-side controls are visually much more sensitive to the same
 // transform used by the phone layout. Keep AwemeX's preference semantics, but
-// attenuate only the amount of shrink by 50%. Examples:
-//   0.90 requested -> 0.95 effective
-//   0.80 requested -> 0.90 effective
-//   0.70 requested -> 0.85 effective
+// attenuate only the amount of shrink by 20%. Examples:
+//   0.90 requested -> 0.98 effective
+//   0.80 requested -> 0.96 effective
+//   0.70 requested -> 0.94 effective
 // Identity and non-simple transforms pass through unchanged.
 static CGAffineTransform softenRightStackTransform(
     id view, CGAffineTransform t) {
-    const double strength = 0.50;
+    const double strength = 0.20;
     const double epsilon = 0.001;
+    const double minimumScale = 0.90;
 
     // Left/top/unknown stacks must retain their original transform.
     if (!isRightStackCompat(view)) return t;
@@ -397,13 +398,27 @@ static CGAffineTransform softenRightStackTransform(
         return t;
     }
 
-    t.a = 1.0 - (1.0 - t.a) * strength;
-    t.d = 1.0 - (1.0 - t.d) * strength;
+    double rawScale = ((double)t.a + (double)t.d) * 0.5;
+    double effectiveA = 1.0 - (1.0 - (double)t.a) * strength;
+    double effectiveD = 1.0 - (1.0 - (double)t.d) * strength;
+
+    // Never allow the iPad right stack to become excessively small.
+    if (effectiveA < minimumScale) effectiveA = minimumScale;
+    if (effectiveD < minimumScale) effectiveD = minimumScale;
 
     // AwemeX's alignment translation is proportional to the shrink amount;
-    // attenuate it by the same factor so the stack stays visually anchored.
-    t.tx *= strength;
-    t.ty *= strength;
+    // adjust translation according to the actual post-clamp shrink ratio.
+    double effectiveScale = (effectiveA + effectiveD) * 0.5;
+    double rawShrink = 1.0 - rawScale;
+    double effectiveShrink = 1.0 - effectiveScale;
+    double translationRatio =
+        rawShrink > epsilon ? effectiveShrink / rawShrink : 0.0;
+
+    t.a = (CGFloat)effectiveA;
+    t.d = (CGFloat)effectiveD;
+    t.tx = (CGFloat)((double)t.tx * translationRatio);
+    t.ty = (CGFloat)((double)t.ty * translationRatio);
+
     return t;
 }
 

@@ -285,6 +285,36 @@ static BOOL transformHasUnitScale(CGAffineTransform t) {
            sy2 > 0.999 && sy2 < 1.001;
 }
 
+// iPad's right-side controls are visually much more sensitive to the same
+// transform used by the phone layout. Keep AwemeX's preference semantics, but
+// attenuate only the amount of shrink by 50%. Examples:
+//   0.90 requested -> 0.95 effective
+//   0.80 requested -> 0.90 effective
+//   0.70 requested -> 0.85 effective
+// Identity and non-simple transforms pass through unchanged.
+static CGAffineTransform softenRightStackTransform(CGAffineTransform t) {
+    const double strength = 0.50;
+    const double epsilon = 0.001;
+
+    // The observed right-stack helper emits a simple axis-aligned scale plus
+    // translation. Do not rewrite rotations/shears or expanding transforms.
+    if (t.a <= 0.0 || t.d <= 0.0 ||
+        t.a >= 1.0 - epsilon || t.d >= 1.0 - epsilon ||
+        t.b < -epsilon || t.b > epsilon ||
+        t.c < -epsilon || t.c > epsilon) {
+        return t;
+    }
+
+    t.a = 1.0 - (1.0 - t.a) * strength;
+    t.d = 1.0 - (1.0 - t.d) * strength;
+
+    // AwemeX's alignment translation is proportional to the shrink amount;
+    // attenuate it by the same factor so the stack stays visually anchored.
+    t.tx *= strength;
+    t.ty *= strength;
+    return t;
+}
+
 static BOOL applyAwemeXSafeScalingIfNeeded(id view) {
     if (!view || gApplyingSafeScaling) return 0;
 
@@ -319,8 +349,10 @@ static void compatRightStackSetTransformHook(
     id self, SEL _cmd, CGAffineTransform transform) {
     IMP original =
         findOriginal(self, _cmd, (IMP)compatRightStackSetTransformHook);
+
+    CGAffineTransform effective = softenRightStackTransform(transform);
     if (original) {
-        ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, transform);
+        ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, effective);
     }
 
     if (gApplyingSafeScaling) return;

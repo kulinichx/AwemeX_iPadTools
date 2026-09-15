@@ -1,23 +1,18 @@
-// AwemeX_iPadCompat v0.3-probe
-// Runtime-only iPad compatibility/probe layer for AwemeX 2.6.2.
-// Scope: v0.2 search/sidebar/right-stack fixes + a TARGETED long-press probe
-// on AWEPlayInteractionViewController. The probe does not download anything.
-// It forwards a one-finger long press into the existing showDislikeOnVideo
-// action so the device test can tell us whether AwemeX's own downstream
-// long-press/media hook is already reachable on iPad.
+// AwemeX_iPadCompat v1.2
+// Runtime-only iPad compatibility layer for AwemeX 2.6.2.
 //
-// IMPORTANT: this is a diagnostic probe, not the final media implementation.
-// No global UIView hooks, no timers, no downloader, no network code,
-// no independent preferences UI.
+// Final iPad bridges in this file are deliberately narrow:
+//   * top-right search: reuse AwemeX 2.6.2's native 0..1 opacity preference,
+//     but apply it to the entrance imageView (not the hit-test container);
+//   * right interaction stack: reuse AwemeX 2.6.2's native 50..60 scale value,
+//     but apply the natural stack transform used by the iPad AlphaPro build;
+//   * sidebar compatibility and the existing targeted long-press probe remain.
 //
-// The scaling bridge does NOT implement a second scaling algorithm. It only asks
-// AwemeX's own `awe_applySafeScaling` helper to re-apply its existing transform
-// on the two iPad stack classes used by AlphaPro. This preserves AwemeX's own
-// scaling preference/limits and avoids the AlphaPro-wide UIView layout fallback.
-
+// No global UIView hooks, no repeating timers, no downloader/network code.
 // Intentionally avoids private SDK headers. Theos can link this as a normal dylib.
 #include <dispatch/dispatch.h>
 #include <CoreGraphics/CGAffineTransform.h>
+#include <CoreGraphics/CGGeometry.h>
 
 
 typedef unsigned char BOOL;
@@ -55,12 +50,16 @@ extern void free(void *ptr);
 #define MAX_HOOKS 64
 #define OBJC_ASSOCIATION_RETAIN_NONATOMIC 1UL
 
-// AwemeX 2.6.2's obfuscated MyDefaults BOOL getter.
+// AwemeX 2.6.2 MyDefaults selectors recovered from the original dylib.
+// Types from Objective-C metadata:
+//   g24...:                       -> BOOL(id key)
+//   KgzsTJEZJr3mvMOvq4Oa3MR     -> float   (右上角搜索透明度, UI range 0..1)
+//   Jtznf5OncDO9R17VhoYb        -> float   (右侧按钮缩放比例度, UI range 50..60)
 static const char *kMyDefaultsBoolGetter = "g24MPeX47iRQ9mJBhaKvZx6F:";
+static const char *kNativeSearchAlphaGetter = "KgzsTJEZJr3mvMOvq4Oa3MR";
+static const char *kNativeRightScaleGetter = "Jtznf5OncDO9R17VhoYb";
 
 // UTF-8 preference keys used by AwemeX. Hex escapes avoid source-encoding issues.
-static const char kPrefHideSearch[] =
-    "\xe9\x9a\x90\xe8\x97\x8f\xe6\x89\x93\xe5\xbc\x80\xe8\xaf\x84\xe8\xae\xba\xe5\x8f\xb3\xe4\xb8\x8a\xe6\x90\x9c\xe7\xb4\xa2"; // 隐藏打开评论右上搜索
 static const char kPrefHideSidebar1[] =
     "\xe7\xa7\xbb\xe9\x99\xa4\xe5\xb7\xa6\xe4\xbe\xa7\xe8\xbf\x9b\xe5\x85\xa5\xe5\x85\xa5\xe5\x8f\xa3"; // 移除左侧进入入口
 static const char kPrefHideSidebar2[] =
@@ -102,8 +101,16 @@ static BOOL awxBoolPref(const char *key) {
     return ((BOOL (*)(id, SEL, id))objc_msgSend)((id)defaults, getter, keyObj);
 }
 
-static BOOL shouldHideSearch(void) {
-    return awxBoolPref(kPrefHideSearch);
+static float awxNativeFloat0(const char *selectorName, float fallback) {
+    if (!selectorName) return fallback;
+
+    Class defaults = objc_getClass("MyDefaults");
+    if (!defaults) return fallback;
+
+    SEL getter = sel_registerName(selectorName);
+    if (!class_getClassMethod(defaults, getter)) return fallback;
+
+    return ((float (*)(id, SEL))objc_msgSend)((id)defaults, getter);
 }
 
 static BOOL shouldHideSidebar(void) {
@@ -147,20 +154,6 @@ static void enforceHiddenView(id view) {
     if (interactive) {
         ((void (*)(id, SEL, BOOL))objc_msgSend)(view, setInteractiveSel, 0);
     }
-}
-
-// AwemeX 2.6.2 search-hide semantics on iPad:
-// hide the rendering only; keep the UIView and its hit target intact.
-static void applyInvisibleClickableSearch(id view, BOOL invisible) {
-    if (!view || !invisible) return;
-
-    id layer = ((id (*)(id, SEL))objc_msgSend)(
-        view, sel_registerName("layer"));
-    if (!layer) return;
-
-    ((void (*)(id, SEL, float))objc_msgSend)(
-        layer, sel_registerName("setOpacity:"),
-        0.0f);
 }
 
 static IMP findOriginal(id self, SEL sel, IMP replacement) {
@@ -232,20 +225,7 @@ static BOOL hookMethod(Class cls, SEL sel, IMP replacement) {
 }
 
 
-// -------- Targeted right-side scaling bridge --------
-// Static analysis of AwemeX 2.6.2 found its own helper selector
-// `awe_applySafeScaling`. That method computes/clamps its scale from AwemeX's
-// own configuration and applies a transform.
-//
-// Important: `awe_applySafeScaling` must not be called from every layout pass.
-// On iPad, repeated layout callbacks can otherwise compound the current
-// transform and make a small slider adjustment look dramatically smaller.
-//
-// The bridge therefore has two narrow triggers only:
-//   1. didMoveToWindow: apply once when the stack enters a window.
-//   2. setTransform:: if the app resets the stack back to unit scale, re-apply.
-//
-// We still do not read AwemeX's scale preference or duplicate its scale math.
+// -------- Native search opacity + natural right-stack bridge --------
 
 static BOOL objectResponds(id obj, const char *selectorName) {
     if (!obj || !selectorName) return 0;
@@ -260,48 +240,45 @@ static id sendId0(id obj, const char *selectorName) {
     return ((id (*)(id, SEL))objc_msgSend)(obj, sel);
 }
 
-static id findAwemeXSafeScalingTarget(id view) {
-    if (!view) return NULL;
-    const char *safeSelName = "awe_applySafeScaling";
+static double clampDouble(double value, double lo, double hi) {
+    if (value < lo) return lo;
+    if (value > hi) return hi;
+    return value;
+}
 
-    // Preferred path: AwemeX attached the helper directly to this concrete view.
-    if (objectResponds(view, safeSelName)) return view;
+// The original 2.6.2 implementation hooks -imageView, applies the value from
+// +[MyDefaults KgzsTJEZJr3mvMOvq4Oa3MR] directly with setAlpha:, and then
+// enables interaction. Applying alpha to the imageView rather than the entrance
+// container is critical: alpha==0 must not remove the parent's hit target.
+static double nativeSearchVisualAlpha(void) {
+    double alpha = (double)awxNativeFloat0(kNativeSearchAlphaGetter, 1.0f);
+    alpha = clampDouble(alpha, 0.0, 1.0);
 
-    // Conservative fallback: a small superview walk only. Do not scan the whole
-    // hierarchy and do not walk all live UIViews as AlphaPro's global fallback did.
-    id node = view;
-    for (int depth = 0; depth < 4; depth++) {
-        node = sendId0(node, "superview");
-        if (!node) break;
-        if (objectResponds(node, safeSelName)) return node;
+    return alpha;
+}
+
+static void applyNativeSearchVisual(id entrance) {
+    if (!entrance) return;
+
+    // Keep the hit-test container active regardless of visual alpha.
+    if (objectResponds(entrance, "setUserInteractionEnabled:")) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(
+            entrance, sel_registerName("setUserInteractionEnabled:"), 1);
     }
-    return NULL;
+
+    if (!objectResponds(entrance, "imageView")) return;
+    id imageView = sendId0(entrance, "imageView");
+    if (!imageView) return;
+
+    double alpha = nativeSearchVisualAlpha();
+    ((void (*)(id, SEL, double))objc_msgSend)(
+        imageView, sel_registerName("setAlpha:"), alpha);
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(
+        imageView, sel_registerName("setUserInteractionEnabled:"), 1);
 }
 
-// UI transform updates are main-thread work in this probe. This guard prevents
-// synchronous recursion when awe_applySafeScaling itself calls setTransform:.
-static BOOL gApplyingSafeScaling = 0;
-
-static BOOL readTransform(id view, CGAffineTransform *outTransform) {
-    if (!view || !outTransform || !objectResponds(view, "transform")) return 0;
-    SEL transformSel = sel_registerName("transform");
-    *outTransform =
-        ((CGAffineTransform (*)(id, SEL))objc_msgSend)(view, transformSel);
-    return 1;
-}
-
-static BOOL transformHasUnitScale(CGAffineTransform t) {
-    // Ignore translation and rotation. We only care whether the two basis
-    // vectors still have unit length, i.e. no scale has been applied yet.
-    double sx2 = (double)t.a * (double)t.a + (double)t.b * (double)t.b;
-    double sy2 = (double)t.c * (double)t.c + (double)t.d * (double)t.d;
-    return sx2 > 0.999 && sx2 < 1.001 &&
-           sy2 > 0.999 && sy2 < 1.001;
-}
-
-// Restrict iPad scaling compatibility to the actual right interaction stack.
-// AWEElementStackView / IESLiveStackView are also used for left/top/other
-// overlays, so class identity alone is not sufficient.
+// Restrict scaling to the right interaction stack. Class identity alone is not
+// enough because AWEElementStackView/IESLiveStackView are reused elsewhere.
 static BOOL compatStringEqualsUTF8(id stringObject, const char *utf8) {
     if (!stringObject || !utf8) return 0;
     id other = makeNSString(utf8);
@@ -318,54 +295,101 @@ static BOOL compatIsKindOfClassName(id object, const char *className) {
         object, sel_registerName("isKindOfClass:"), cls);
 }
 
-static BOOL compatContainsSubviewOfClassName(
-    id container, const char *className) {
-    if (!container || !className) return 0;
+static NSUInteger compatSubviewCount(id view) {
+    id subviews = sendId0(view, "subviews");
+    if (!subviews) return 0;
+    return ((NSUInteger (*)(id, SEL))objc_msgSend)(
+        subviews, sel_registerName("count"));
+}
 
+static BOOL compatContainsSubviewOfClassName(id container, const char *className) {
+    if (!container || !className) return 0;
     id subviews = sendId0(container, "subviews");
     if (!subviews) return 0;
 
-    NSUInteger count =
-        ((NSUInteger (*)(id, SEL))objc_msgSend)(
-            subviews, sel_registerName("count"));
-
+    NSUInteger count = ((NSUInteger (*)(id, SEL))objc_msgSend)(
+        subviews, sel_registerName("count"));
     for (NSUInteger i = 0; i < count; i++) {
-        id sub =
-            ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
-                subviews, sel_registerName("objectAtIndex:"), i);
+        id sub = ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
+            subviews, sel_registerName("objectAtIndex:"), i);
         if (!sub) continue;
-
         if (compatIsKindOfClassName(sub, className)) return 1;
         if (compatContainsSubviewOfClassName(sub, className)) return 1;
     }
     return 0;
 }
 
-static BOOL compatStackHasElementClassName(
-    id container, const char *targetName) {
+static BOOL compatStackHasElementClassName(id container, const char *targetName) {
     if (!container || !targetName) return 0;
-
     id subviews = sendId0(container, "subviews");
     if (!subviews) return 0;
 
-    NSUInteger count =
-        ((NSUInteger (*)(id, SEL))objc_msgSend)(
-            subviews, sel_registerName("count"));
-
+    NSUInteger count = ((NSUInteger (*)(id, SEL))objc_msgSend)(
+        subviews, sel_registerName("count"));
     for (NSUInteger i = 0; i < count; i++) {
-        id sub =
-            ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
-                subviews, sel_registerName("objectAtIndex:"), i);
+        id sub = ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
+            subviews, sel_registerName("objectAtIndex:"), i);
         if (!sub) continue;
 
         if (objectResponds(sub, "elementClassName")) {
             id name = sendId0(sub, "elementClassName");
             if (compatStringEqualsUTF8(name, targetName)) return 1;
         }
-
         if (compatStackHasElementClassName(sub, targetName)) return 1;
     }
     return 0;
+}
+
+static BOOL compatWindowFrame(id view, CGRect *outFrame, double *outW, double *outH) {
+    if (!view || !outFrame || !outW || !outH) return 0;
+    id superview = sendId0(view, "superview");
+    id window = sendId0(view, "window");
+    if (!superview || !window) return 0;
+
+    CGRect frame = ((CGRect (*)(id, SEL))objc_msgSend)(
+        view, sel_registerName("frame"));
+    CGRect converted = ((CGRect (*)(id, SEL, CGRect, id))objc_msgSend)(
+        superview, sel_registerName("convertRect:toView:"), frame, window);
+
+    Class screenClass = objc_getClass("UIScreen");
+    if (!screenClass) return 0;
+    id screen = ((id (*)(id, SEL))objc_msgSend)(
+        (id)screenClass, sel_registerName("mainScreen"));
+    if (!screen) return 0;
+    CGRect bounds = ((CGRect (*)(id, SEL))objc_msgSend)(
+        screen, sel_registerName("bounds"));
+
+    if (converted.size.width <= 0.0 || converted.size.height <= 0.0 ||
+        bounds.size.width <= 0.0 || bounds.size.height <= 0.0) {
+        return 0;
+    }
+
+    *outFrame = converted;
+    *outW = (double)bounds.size.width;
+    *outH = (double)bounds.size.height;
+    return 1;
+}
+
+// Exact geometry fallback from the user's working iPad AlphaPro implementation.
+// It is needed because some iPad builds expose neither the right label nor the
+// avatar element on the interaction stack.
+static BOOL compatIsLooseRightAreaStack(id view) {
+    if (!view || !sendId0(view, "superview")) return 0;
+    if (compatIsKindOfClassName(view, "UIScrollView")) return 0;
+
+    CGRect f;
+    double screenW = 0.0, screenH = 0.0;
+    if (!compatWindowFrame(view, &f, &screenW, &screenH)) return 0;
+
+    if ((double)f.origin.x < screenW * 0.55) return 0;
+    if ((double)f.origin.y < screenH * 0.22) return 0;
+    double maxWidth = screenW * 0.34;
+    if (maxWidth > 260.0) maxWidth = 260.0;
+    if ((double)f.size.width > maxWidth) return 0;
+    if ((double)f.size.height < 90.0 ||
+        (double)f.size.height > screenH * 0.82) return 0;
+    if (compatSubviewCount(view) < 2) return 0;
+    return 1;
 }
 
 static BOOL isRightStackCompat(id view) {
@@ -373,137 +397,146 @@ static BOOL isRightStackCompat(id view) {
 
     id label = sendId0(view, "accessibilityLabel");
     if (compatStringEqualsUTF8(label, "right")) return 1;
-
     if (compatContainsSubviewOfClassName(
-            view, "AWEPlayInteractionUserAvatarView")) {
-        return 1;
-    }
-
+            view, "AWEPlayInteractionUserAvatarView")) return 1;
     if (compatStackHasElementClassName(
-            view, "AWEPlayInteractionUserAvatarOptElementElement")) {
-        return 1;
-    }
+            view, "AWEPlayInteractionUserAvatarOptElementElement")) return 1;
 
-    return 0;
+    return compatIsLooseRightAreaStack(view);
 }
 
-// iPad's right-side controls are visually much more sensitive to the same
-// transform used by the phone layout. Keep AwemeX's preference semantics, but
-// attenuate only the amount of shrink by 20%. Examples:
-//   0.90 requested -> 0.98 effective
-//   0.80 requested -> 0.96 effective
-//   0.70 requested -> 0.94 effective
-// Identity and non-simple transforms pass through unchanged.
-static CGAffineTransform softenRightStackTransform(
-    id view, CGAffineTransform t) {
-    const double strength = 0.20;
-    const double epsilon = 0.001;
-    const double minimumScale = 0.90;
-
-    // Left/top/unknown stacks must retain their original transform.
-    if (!isRightStackCompat(view)) return t;
-
-    // The observed right-stack helper emits a simple axis-aligned scale plus
-    // translation. Do not rewrite rotations/shears or expanding transforms.
-    if (t.a <= 0.0 || t.d <= 0.0 ||
-        t.a >= 1.0 - epsilon || t.d >= 1.0 - epsilon ||
-        t.b < -epsilon || t.b > epsilon ||
-        t.c < -epsilon || t.c > epsilon) {
-        return t;
-    }
-
-    double rawScale = ((double)t.a + (double)t.d) * 0.5;
-    double effectiveA = 1.0 - (1.0 - (double)t.a) * strength;
-    double effectiveD = 1.0 - (1.0 - (double)t.d) * strength;
-
-    // Never allow the iPad right stack to become excessively small.
-    if (effectiveA < minimumScale) effectiveA = minimumScale;
-    if (effectiveD < minimumScale) effectiveD = minimumScale;
-
-    // AwemeX's alignment translation is proportional to the shrink amount;
-    // adjust translation according to the actual post-clamp shrink ratio.
-    double effectiveScale = (effectiveA + effectiveD) * 0.5;
-    double rawShrink = 1.0 - rawScale;
-    double effectiveShrink = 1.0 - effectiveScale;
-    double translationRatio =
-        rawShrink > epsilon ? effectiveShrink / rawShrink : 0.0;
-
-    t.a = (CGFloat)effectiveA;
-    t.d = (CGFloat)effectiveD;
-    t.tx = (CGFloat)((double)t.tx * translationRatio);
-    t.ty = (CGFloat)((double)t.ty * translationRatio);
-
-    return t;
+// AwemeX 2.6.2 exposes this slider as 50..60. The phone implementation does:
+//     scale = clamp(raw / bounds.width * 0.64, 0.30, 1.20)
+// so a wider iPad stack is divided by a much larger width and collapses.
+// At the native 60-point maximum, the intended visual width is 60*0.64=38.4pt.
+// Normalize against that native maximum instead: 50..60 -> 0.8333..1.0.
+// This keeps the original slider's ordering/range while making the response
+// independent of the iPad stack's much wider bounds.
+static double nativeRightStackScale(void) {
+    double raw = (double)awxNativeFloat0(kNativeRightScaleGetter, -1.0f);
+    if (raw <= 0.0) return 1.0;
+    raw = clampDouble(raw, 50.0, 60.0);
+    return raw / 60.0;
 }
 
-static BOOL applyAwemeXSafeScalingIfNeeded(id view) {
-    if (!view || gApplyingSafeScaling) return 0;
-    if (!isRightStackCompat(view)) return 0;
-
-    id target = findAwemeXSafeScalingTarget(view);
-    // Do not scale an outer parent after the right stack has already been
-    // normalized by compatRightStackSetTransformHook.
-    if (!target || target != view) return 0;
-
-    // If the target is already scaled, do not call the helper again. This is
-    // what makes the bridge idempotent across repeated lifecycle callbacks.
-    CGAffineTransform current;
-    if (readTransform(target, &current) && !transformHasUnitScale(current)) {
-        return 1;
+static CGAffineTransform rightStackTargetTransform(id view) {
+    double scale = nativeRightStackScale();
+    double delta = scale - 1.0;
+    if (delta < 0.0) delta = -delta;
+    if (scale <= 0.0 || delta <= 0.001) {
+        return CGAffineTransformMake(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
     }
 
-    gApplyingSafeScaling = 1;
-    ((void (*)(id, SEL))objc_msgSend)(
-        target, sel_registerName("awe_applySafeScaling"));
-    gApplyingSafeScaling = 0;
-    return 1;
+    double ty = 0.0;
+    id subviews = sendId0(view, "subviews");
+    if (subviews) {
+        NSUInteger count = ((NSUInteger (*)(id, SEL))objc_msgSend)(
+            subviews, sel_registerName("count"));
+        for (NSUInteger i = 0; i < count; i++) {
+            id sub = ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
+                subviews, sel_registerName("objectAtIndex:"), i);
+            if (!sub) continue;
+            CGRect subFrame = ((CGRect (*)(id, SEL))objc_msgSend)(
+                sub, sel_registerName("frame"));
+            double h = (double)subFrame.size.height;
+            ty += (h - h * scale) / 2.0;
+        }
+    }
+
+    CGRect frame = ((CGRect (*)(id, SEL))objc_msgSend)(
+        view, sel_registerName("frame"));
+    double width = (double)frame.size.width;
+    double rightTX = (width - width * scale) / 2.0;
+
+    return CGAffineTransformMake(
+        (CGFloat)scale, 0.0, 0.0, (CGFloat)scale,
+        (CGFloat)rightTX, (CGFloat)ty);
 }
 
-static void compatRightStackDidMoveHook(id self, SEL _cmd) {
-    IMP original = findOriginal(self, _cmd, (IMP)compatRightStackDidMoveHook);
+static double absDouble(double v) { return v < 0.0 ? -v : v; }
+
+static BOOL transformsNearlyEqual(CGAffineTransform a, CGAffineTransform b) {
+    const double e = 0.0005;
+    return absDouble((double)a.a - (double)b.a) <= e &&
+           absDouble((double)a.b - (double)b.b) <= e &&
+           absDouble((double)a.c - (double)b.c) <= e &&
+           absDouble((double)a.d - (double)b.d) <= e &&
+           absDouble((double)a.tx - (double)b.tx) <= e &&
+           absDouble((double)a.ty - (double)b.ty) <= e;
+}
+
+static void applyRightStackTarget(id view) {
+    if (!view || !isRightStackCompat(view)) return;
+    CGAffineTransform target = rightStackTargetTransform(view);
+    CGAffineTransform current = ((CGAffineTransform (*)(id, SEL))objc_msgSend)(
+        view, sel_registerName("transform"));
+    if (transformsNearlyEqual(current, target)) return;
+    ((void (*)(id, SEL, CGAffineTransform))objc_msgSend)(
+        view, sel_registerName("setTransform:"), target);
+}
+
+static void compatRightStackVoidHook(id self, SEL _cmd) {
+    IMP original = findOriginal(self, _cmd, (IMP)compatRightStackVoidHook);
     if (original) ((void (*)(id, SEL))original)(self, _cmd);
+    if (sendId0(self, "window")) applyRightStackTarget(self);
+}
 
-    // Only apply while attached. A detached stack has no visible transform to fix.
-    if (sendId0(self, "window")) {
-        applyAwemeXSafeScalingIfNeeded(self);
-    }
+static id compatRightStackArrangedSubviewsHook(id self, SEL _cmd) {
+    IMP original = findOriginal(
+        self, _cmd, (IMP)compatRightStackArrangedSubviewsHook);
+    id result = original ? ((id (*)(id, SEL))original)(self, _cmd) : NULL;
+    if (sendId0(self, "window")) applyRightStackTarget(self);
+    return result;
 }
 
 static void compatRightStackSetTransformHook(
-    id self, SEL _cmd, CGAffineTransform transform) {
-    IMP original =
-        findOriginal(self, _cmd, (IMP)compatRightStackSetTransformHook);
+    id self, SEL _cmd, CGAffineTransform incoming) {
+    IMP original = findOriginal(
+        self, _cmd, (IMP)compatRightStackSetTransformHook);
+    if (!original) return;
 
-    CGAffineTransform effective =
-        softenRightStackTransform(self, transform);
-    if (original) {
-        ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, effective);
+    if (isRightStackCompat(self)) {
+        CGAffineTransform target = rightStackTargetTransform(self);
+        ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, target);
+        return;
     }
-
-    if (gApplyingSafeScaling) return;
-
-    // AwemeX/system relayouts can reset the stack to identity. Re-apply only
-    // for that reset case; never re-apply on an already scaled transform.
-    if (transformHasUnitScale(transform)) {
-        applyAwemeXSafeScalingIfNeeded(self);
-    }
+    ((void (*)(id, SEL, CGAffineTransform))original)(self, _cmd, incoming);
 }
 
 static BOOL installRightStackClass(const char *className) {
     Class cls = objc_getClass(className);
     if (!cls) return 0;
 
-    BOOL a = hookMethod(cls, sel_registerName("didMoveToWindow"),
-                        (IMP)compatRightStackDidMoveHook);
-    BOOL b = hookMethod(cls, sel_registerName("setTransform:"),
+    BOOL a = hookMethod(cls, sel_registerName("layoutSubviews"),
+                        (IMP)compatRightStackVoidHook);
+    BOOL b = hookMethod(cls, sel_registerName("didMoveToWindow"),
+                        (IMP)compatRightStackVoidHook);
+    BOOL c = hookMethod(cls, sel_registerName("arrangedSubviews"),
+                        (IMP)compatRightStackArrangedSubviewsHook);
+    BOOL d = hookMethod(cls, sel_registerName("setTransform:"),
                         (IMP)compatRightStackSetTransformHook);
-    return a || b;
+    (void)a; (void)b; (void)c;
+    // setTransform: is the essential guard; lifecycle hooks are refresh helpers.
+    return d;
+}
+
+static id compatSearchImageViewHook(id self, SEL _cmd) {
+    IMP original = findOriginal(self, _cmd, (IMP)compatSearchImageViewHook);
+    id imageView = original ? ((id (*)(id, SEL))original)(self, _cmd) : NULL;
+    if (imageView) {
+        double alpha = nativeSearchVisualAlpha();
+        ((void (*)(id, SEL, double))objc_msgSend)(
+            imageView, sel_registerName("setAlpha:"), alpha);
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(
+            imageView, sel_registerName("setUserInteractionEnabled:"), 1);
+    }
+    return imageView;
 }
 
 static void compatSearchVoidHook(id self, SEL _cmd) {
     IMP original = findOriginal(self, _cmd, (IMP)compatSearchVoidHook);
     if (original) ((void (*)(id, SEL))original)(self, _cmd);
-    applyInvisibleClickableSearch(self, shouldHideSearch());
+    applyNativeSearchVisual(self);
 }
 
 static id compatSidebarViewHook(id self, SEL _cmd) {
@@ -523,9 +556,27 @@ static BOOL installSearchClass(const char *className) {
     Class cls = objc_getClass(className);
     if (!cls) return 0;
 
-    BOOL a = hookMethod(cls, sel_registerName("layoutSubviews"), (IMP)compatSearchVoidHook);
-    BOOL b = hookMethod(cls, sel_registerName("didMoveToWindow"), (IMP)compatSearchVoidHook);
-    return a || b;
+    // 2.6.2's original implementation hooks -imageView. Keep lifecycle hooks
+    // too, because iPad relayouts may replace/reset the image view afterwards.
+    BOOL a = hookMethod(cls, sel_registerName("imageView"),
+                        (IMP)compatSearchImageViewHook);
+    BOOL b = hookMethod(cls, sel_registerName("layoutSubviews"),
+                        (IMP)compatSearchVoidHook);
+    BOOL c = hookMethod(cls, sel_registerName("didMoveToWindow"),
+                        (IMP)compatSearchVoidHook);
+    (void)b; (void)c;
+    // imageView is the exact 2.6.2 rendering path. Do not mark this class as
+    // installed merely because a generic lifecycle method was hookable.
+    return a;
+}
+
+static void installSearchHooksIfNeeded(void) {
+    if (!gInstalledSearchA) {
+        gInstalledSearchA = installSearchClass("AWESearchEntranceView");
+    }
+    if (!gInstalledSearchB) {
+        gInstalledSearchB = installSearchClass("AWEHPDiscoverFeedEntranceView");
+    }
 }
 
 static void installSidebarHooks(void) {
@@ -636,12 +687,16 @@ static BOOL ensureLongPressProbe(id controller) {
 static void compatAwemeViewDidLoadHook(id self, SEL _cmd) {
     IMP original = findOriginal(self, _cmd, (IMP)compatAwemeViewDidLoadHook);
     if (original) ((void (*)(id, SEL))original)(self, _cmd);
+    // Feed classes may live in a lazily loaded image; retry search hook install
+    // when the actual play controller comes alive instead of polling UIView.
+    installSearchHooksIfNeeded();
     ensureLongPressProbe(self);
 }
 
 static void compatAwemeViewDidAppearHook(id self, SEL _cmd, BOOL animated) {
     IMP original = findOriginal(self, _cmd, (IMP)compatAwemeViewDidAppearHook);
     if (original) ((void (*)(id, SEL, BOOL))original)(self, _cmd, animated);
+    installSearchHooksIfNeeded();
     ensureLongPressProbe(self);
 }
 
@@ -667,15 +722,10 @@ static void installHooks(void *context) {
     (void)context;
     if (!isPad()) return;
 
-    if (!gInstalledSearchA) {
-        gInstalledSearchA = installSearchClass("AWESearchEntranceView");
-    }
-    if (!gInstalledSearchB) {
-        gInstalledSearchB = installSearchClass("AWEHPDiscoverFeedEntranceView");
-    }
+    installSearchHooksIfNeeded();
 
-    // Right-side iPad stack views observed in AlphaPro. These hooks only bridge
-    // into AwemeX's own `awe_applySafeScaling`; no AlphaPro ax_scale preference.
+    // Right-side iPad stack views: native 2.6.2 scale value + the user's
+    // natural iPad stack transform. No cumulative safe-scaling bridge.
     if (!gInstalledRightStackA) {
         gInstalledRightStackA = installRightStackClass("AWEElementStackView");
     }
